@@ -57,10 +57,11 @@
             align-items: center;
             justify-content: center;
             transition: background 0.1s;
+            position: relative;
         }
         .day:hover { background: #e1e3e6; }
         .day.active { background: #0077FF; color: white; }
-        .day.has-task { border: 2px solid #4BB34B; position: relative; }
+        .day.has-task { border: 2px solid #4BB34B; }
         .day.has-task::after {
             content: '';
             position: absolute;
@@ -69,6 +70,22 @@
             height: 6px;
             background: #4BB34B;
             border-radius: 50%;
+        }
+        .day.completed {
+            background: #d4edda;
+            border: 2px solid #28a745;
+            color: #155724;
+            font-weight: 600;
+        }
+        .day.completed::after {
+            content: '✓';
+            bottom: auto;
+            top: 2px;
+            right: 4px;
+            width: auto;
+            height: auto;
+            font-size: 10px;
+            background: transparent;
         }
         .day.empty { background: transparent; cursor: default; }
         .day.today { border: 2px solid #0077FF; font-weight: 600; }
@@ -80,168 +97,235 @@
             margin-top: 16px;
             display: none;
         }
-        #task-box h3 { 
-            margin: 0 0 12px 0; 
-            font-size: 16px; 
-            font-weight: 600;
-            color: #000;
-        }
-        #task-text { 
-            margin: 0 0 12px 0; 
-            line-height: 1.6; 
-            font-size: 14px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
+        #task-box h3 { margin: 0 0 12px 0; font-size: 16px; font-weight: 600; }
+        #task-text { margin: 0 0 12px 0; line-height: 1.6; font-size: 14px; white-space: pre-wrap; }
         #task-text a { color: #0077FF; text-decoration: none; }
         #task-text a:hover { text-decoration: underline; }
         .task-tag { color: #0077FF; font-weight: 500; }
-        .status { 
-            font-size: 13px; 
-            margin: 0; 
-            padding-top: 10px;
-            border-top: 1px solid #e1e3e6;
+        .status { font-size: 13px; margin: 0; padding-top: 10px; border-top: 1px solid #e1e3e6; }
+        .status-ok { color: #4BB34B; }
+        .status-wait { color: #FF9500; }
+        .status-done { color: #28a745; }
+        
+        .complete-btn {
+            width: 100%;
+            padding: 12px;
+            background: #4BB34B;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 12px;
+            transition: background 0.2s;
         }
-        .status-ok { color: #4BB34B; font-weight: 500; }
-        .status-wait { color: #FF9500; font-weight: 500; }
-        .loading { text-align: center; color: #888; padding: 30px 10px; font-size: 14px; }
+        .complete-btn:hover { background: #3d9c3d; }
+        .complete-btn.completed {
+            background: #ccc;
+            cursor: default;
+        }
+        
+        .loading { text-align: center; color: #888; padding: 30px; }
+        .error { 
+            background: #fff2f2; 
+            color: #FF3B30; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin: 10px 0;
+            font-size: 13px;
+        }
+        .debug {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            margin-top: 10px;
+            font-family: monospace;
+            display: none;
+        }
     </style>
 </head>
 <body>
 
+    <!-- Шапка с навигацией -->
     <div class="header">
         <button class="nav-btn" id="prevBtn">◀</button>
         <h2 id="monthTitle">Загрузка...</h2>
         <button class="nav-btn" id="nextBtn">▶</button>
     </div>
 
+    <!-- Блоки ошибок и отладки -->
+    <div id="error-box" style="display:none;"></div>
+    <div id="debug-box" class="debug"></div>
+
+    <!-- Дни недели -->
     <div class="calendar" id="weekdays">
         <div class="weekday">Пн</div><div class="weekday">Вт</div><div class="weekday">Ср</div>
         <div class="weekday">Чт</div><div class="weekday">Пт</div><div class="weekday">Сб</div><div class="weekday">Вс</div>
     </div>
+
+    <!-- Дни месяца -->
     <div class="calendar" id="calendar"></div>
 
+    <!-- Блок с заданием -->
     <div id="task-box">
         <h3>📌 <span id="date-title"></span></h3>
         <div id="task-text"></div>
         <p class="status">Статус: <span id="task-status"></span></p>
+        <button id="completeBtn" class="complete-btn" style="display:none;">
+            ✅ Отметить как выполненное
+        </button>
     </div>
 
     <script>
-        vkBridge.send('VKWebAppInit');
-
-        // 🔧 === НАСТРОЙКИ ===
+        // 🔧 === НАСТРОЙКИ — редактируйте только этот блок ===
         const BASE_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQeJ5SzWpqpRRRUR4R4iX_YNhhnmp_6RFpoYuRSXYSYJ7igpnMeqxNogOo3H-dnwMX_La9U5sTMaLsN/pub?output=csv&gid=';
         
         const SHEETS_GID = {
-            'Март 2026': '0',  // ← ПРОВЕРЬТЕ ЭТОТ GID
+            'Март 2026': '1738085710',  // ← ВСТАВЬТЕ СЮДА GID листа "Март 2026"
+            // Примеры для будущих месяцев:
+            // 'Апрель 2026': '1234567890',
         };
 
         const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+        const STORAGE_KEY = 'marathon_oneday_onestep_2026'; // Уникальный ключ для хранения прогресса
         // === КОНЕЦ НАСТРОЕК ===
 
+        // Состояние приложения
         let tasksData = {};
+        let completedDays = [];
         let currentDate = new Date();
         let isLoading = false;
 
+        // DOM элементы
         const calendarEl = document.getElementById('calendar');
         const monthTitleEl = document.getElementById('monthTitle');
         const taskBox = document.getElementById('task-box');
         const taskTextEl = document.getElementById('task-text');
+        const completeBtn = document.getElementById('completeBtn');
+        const errorBox = document.getElementById('error-box');
+        const debugBox = document.getElementById('debug-box');
 
-        // 📄 Исправленный парсер (теперь читает последнюю строку без \n)
+        // 📄 Парсинг CSV с поддержкой многострочных ячеек
         function parseCSV(csvText) {
             const result = {};
-            let currentRow = [];
-            let currentField = '';
-            let inQuotes = false;
-            let headers = null;
-            let dayIdx = -1;
-            let taskIdx = -1;
+            const lines = csvText.split(/\r?\n/);
             
-            // Добавляем перенос строки в конец, чтобы последняя строка точно обработалась
-            csvText += '\n';
+            if (lines.length < 2) return result;
             
-            for (let i = 0; i < csvText.length; i++) {
-                const char = csvText[i];
-                const nextChar = csvText[i + 1];
-                
-                if (char === '"') {
-                    if (inQuotes && nextChar === '"') {
-                        currentField += '"';
-                        i++;
-                    } else {
-                        inQuotes = !inQuotes;
-                    }
-                    continue;
-                }
-                
-                if (inQuotes) {
-                    currentField += char;
-                    continue;
-                }
-                
-                if (char === ',') {
-                    currentRow.push(currentField.trim());
-                    currentField = '';
-                    continue;
-                }
-                
-                if (char === '\n' || char === '\r') {
-                    if (currentField || currentRow.length > 0) {
-                        currentRow.push(currentField.trim());
-                    }
-                    if (currentRow.length > 0) {
-                        if (!headers) {
-                            headers = currentRow.map(h => h.replace(/^"|"$/g, ''));
-                            dayIdx = headers.indexOf('День');
-                            taskIdx = headers.indexOf('Задание');
-                        } else {
-                            if (currentRow.length > Math.max(dayIdx, taskIdx) && dayIdx >= 0 && taskIdx >= 0) {
-                                const day = parseInt(currentRow[dayIdx]);
-                                const task = currentRow[taskIdx];
-                                if (day && task && day >= 1 && day <= 31) {
-                                    result[day] = task;
-                                }
-                            }
-                        }
-                        currentRow = [];
-                        currentField = '';
-                    }
-                    if (char === '\r' && nextChar === '\n') i++;
-                    continue;
-                }
-                
-                currentField += char;
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            const dayIdx = headers.indexOf('День');
+            const taskIdx = headers.indexOf('Задание');
+            
+            if (dayIdx === -1 || taskIdx === -1) {
+                throw new Error('Не найдены колонки "День" или "Задание"');
             }
+            
+            // Собираем многострочные ячейки
+            let currentLine = '';
+            let inQuotes = false;
+            const processedLines = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                currentLine += (currentLine ? '\n' : '') + lines[i];
+                const quotes = (currentLine.match(/"/g) || []).length;
+                inQuotes = quotes % 2 !== 0;
+                
+                if (!inQuotes) {
+                    processedLines.push(currentLine);
+                    currentLine = '';
+                }
+            }
+            if (currentLine) processedLines.push(currentLine);
+            
+            // Парсим данные
+            for (const line of processedLines) {
+                if (!line.trim()) continue;
+                
+                const commaIndex = line.indexOf(',');
+                if (commaIndex === -1) continue;
+                
+                const day = parseInt(line.substring(0, commaIndex).trim());
+                let task = line.substring(commaIndex + 1).trim();
+                
+                if (task.startsWith('"') && task.endsWith('"')) {
+                    task = task.slice(1, -1).replace(/""/g, '"');
+                }
+                
+                if (day >= 1 && day <= 31 && task) {
+                    result[day] = task;
+                }
+            }
+            
             return result;
         }
 
+        // ✨ Форматирование текста задания
         function formatTaskText(text) {
             if (!text) return '✨ Нет задания';
-            let formatted = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            let formatted = text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
             formatted = formatted.replace(/(#\w+)/g, '<span class="task-tag">$1</span>');
             formatted = formatted.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank">$1</a>');
             return formatted;
         }
 
-        async function loadTasks(year, monthIndex) {
-            const sheetKey = `${MONTHS_RU[monthIndex]} ${year}`;
-            const gid = SHEETS_GID[sheetKey];
-            if (!gid) { console.warn(`⚠️ Лист "${sheetKey}" не найден`); return {}; }
-            
-            const url = `${BASE_CSV_URL}${gid}`;
+        // 💾 Сохранение прогресса в облако ВК
+        async function saveProgress() {
             try {
-                const response = await fetch(url);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const csvText = await response.text();
-                return parseCSV(csvText);
+                await vkBridge.send('VKWebAppStorageSet', {
+                    key: STORAGE_KEY,
+                    value: JSON.stringify(completedDays)
+                });
+                console.log('✅ Прогресс сохранён в облако ВК');
             } catch (error) {
-                console.error('❌ Ошибка загрузки:', error);
-                return {};
+                console.error('❌ Ошибка сохранения:', error);
             }
         }
 
+        // 📥 Загрузка прогресса из облака ВК
+        async function loadProgress() {
+            try {
+                const result = await vkBridge.send('VKWebAppStorageGet', {
+                    key: STORAGE_KEY
+                });
+                
+                if (result && result.key && result.value) {
+                    const data = JSON.parse(result.value);
+                    console.log('✅ Прогресс загружен из облака ВК:', data);
+                    return Array.isArray(data) ? data : [];
+                }
+                return [];
+            } catch (error) {
+                console.error('❌ Ошибка загрузки прогресса:', error);
+                return [];
+            }
+        }
+
+        // 🔄 Загрузка заданий из Google Таблицы
+        async function loadTasks(year, monthIndex) {
+            const sheetKey = `${MONTHS_RU[monthIndex]} ${year}`;
+            const gid = SHEETS_GID[sheetKey];
+            
+            if (!gid) {
+                throw new Error(`Лист "${sheetKey}" не найден в настройках`);
+            }
+            
+            const url = `${BASE_CSV_URL}${gid}`;
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ошибка: ${response.status}`);
+            }
+            
+            const csvText = await response.text();
+            return parseCSV(csvText);
+        }
+
+        // 📅 Отрисовка календаря
         function renderCalendar(year, monthIndex) {
             calendarEl.innerHTML = '';
             monthTitleEl.textContent = `${MONTHS_RU[monthIndex]} ${year}`;
@@ -262,55 +346,144 @@
                 const dayDiv = document.createElement('div');
                 dayDiv.className = 'day';
                 dayDiv.textContent = day;
-                if (tasksData[day]) dayDiv.classList.add('has-task');
-                if (year === today.getFullYear() && monthIndex === today.getMonth() && day === today.getDate()) {
+                
+                // Есть задание
+                if (tasksData[day]) {
+                    dayDiv.classList.add('has-task');
+                }
+                
+                // Выполнено
+                if (completedDays.includes(day)) {
+                    dayDiv.classList.add('completed');
+                }
+                
+                // Сегодня
+                if (year === today.getFullYear() && 
+                    monthIndex === today.getMonth() && 
+                    day === today.getDate()) {
                     dayDiv.classList.add('today');
                 }
+                
                 dayDiv.onclick = () => showTask(day, year, monthIndex, dayDiv);
                 calendarEl.appendChild(dayDiv);
             }
+            
+            // Отладочная информация
+            debugBox.innerHTML = `Загружено дней: <strong>${Object.keys(tasksData).length}</strong><br>Выполнено: <strong>${completedDays.length}</strong><br>Дни: ${Object.keys(tasksData).join(', ') || 'нет'}`;
+            debugBox.style.display = 'block';
         }
 
+        // 👁 Показать задание при клике
         function showTask(day, year, monthIndex, clickedEl) {
             document.querySelectorAll('.day').forEach(d => d.classList.remove('active'));
             clickedEl.classList.add('active');
+            
             document.getElementById('date-title').textContent = `${day} ${MONTHS_RU[monthIndex]} ${year}`;
+            
             const task = tasksData[day];
             taskTextEl.innerHTML = formatTaskText(task);
+            
             const taskStatus = document.getElementById('task-status');
+            const isCompleted = completedDays.includes(day);
+            
             if (task) {
-                taskStatus.textContent = 'Ожидает выполнения';
-                taskStatus.className = 'status-wait';
+                if (isCompleted) {
+                    taskStatus.textContent = '✓ Выполнено';
+                    taskStatus.className = 'status-done';
+                    completeBtn.textContent = '✓ Уже выполнено';
+                    completeBtn.classList.add('completed');
+                    completeBtn.disabled = true;
+                } else {
+                    taskStatus.textContent = 'Ожидает выполнения';
+                    taskStatus.className = 'status-wait';
+                    completeBtn.textContent = '✅ Отметить как выполненное';
+                    completeBtn.classList.remove('completed');
+                    completeBtn.disabled = false;
+                    completeBtn.onclick = () => markDayComplete(day);
+                }
+                completeBtn.style.display = 'block';
             } else {
                 taskStatus.textContent = 'Свободный день ✨';
                 taskStatus.className = 'status-ok';
+                completeBtn.style.display = 'none';
             }
+            
             taskBox.style.display = 'block';
             taskBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
-        async function updateMonth(year, monthIndex) {
-            if (isLoading) return;
-            isLoading = true;
-            calendarEl.innerHTML = '<div class="loading">⏳ Загрузка заданий...</div>';
-            taskBox.style.display = 'none';
-            tasksData = await loadTasks(year, monthIndex);
-            renderCalendar(year, monthIndex);
-            updateNavButtons(year, monthIndex);
-            isLoading = false;
+        // ✅ Отметить день как выполненный
+        async function markDayComplete(day) {
+            if (!completedDays.includes(day)) {
+                completedDays.push(day);
+                await saveProgress();
+                
+                // Обновляем визуально
+                const taskStatus = document.getElementById('task-status');
+                taskStatus.textContent = '✓ Выполнено';
+                taskStatus.className = 'status-done';
+                
+                completeBtn.textContent = '✓ Уже выполнено';
+                completeBtn.classList.add('completed');
+                completeBtn.disabled = true;
+                
+                // Обновляем календарь
+                document.querySelectorAll('.day').forEach(d => {
+                    if (d.textContent == day) d.classList.add('completed');
+                });
+                
+                console.log(`✅ День ${day} отмечен как выполненный`);
+            }
         }
 
+        // 🔘 Обновление кнопок навигации
         function updateNavButtons(year, monthIndex) {
             const prevBtn = document.getElementById('prevBtn');
             const nextBtn = document.getElementById('nextBtn');
+            
             const prevMonth = monthIndex === 0 ? 11 : monthIndex - 1;
             const prevYear = monthIndex === 0 ? year - 1 : year;
             const nextMonth = monthIndex === 11 ? 0 : monthIndex + 1;
             const nextYear = monthIndex === 11 ? year + 1 : year;
+            
             prevBtn.disabled = !SHEETS_GID[`${MONTHS_RU[prevMonth]} ${prevYear}`];
             nextBtn.disabled = !SHEETS_GID[`${MONTHS_RU[nextMonth]} ${nextYear}`];
         }
 
+        // 🔄 Обновление месяца
+        async function updateMonth(year, monthIndex) {
+            if (isLoading) return;
+            isLoading = true;
+            
+            errorBox.style.display = 'none';
+            calendarEl.innerHTML = '<div class="loading">⏳ Загрузка заданий...</div>';
+            taskBox.style.display = 'none';
+            
+            try {
+                tasksData = await loadTasks(year, monthIndex);
+                
+                if (Object.keys(tasksData).length === 0) {
+                    showError('Задания не найдены. Проверьте:<br>1. Правильность GID листа<br>2. Опубликована ли таблица<br>3. Заголовки колонок (День, Задание)');
+                } else {
+                    renderCalendar(year, monthIndex);
+                    updateNavButtons(year, monthIndex);
+                }
+            } catch (error) {
+                console.error('❌ Ошибка:', error);
+                showError(`Ошибка загрузки:<br><strong>${error.message}</strong><br><br>Проверьте консоль (F12) для деталей`);
+            }
+            
+            isLoading = false;
+        }
+
+        // ⚠️ Показать ошибку
+        function showError(message) {
+            errorBox.innerHTML = `<div class="error">${message}</div>`;
+            errorBox.style.display = 'block';
+            calendarEl.innerHTML = '';
+        }
+
+        // 🎯 Обработчики навигации
         document.getElementById('prevBtn').onclick = () => {
             let month = currentDate.getMonth(), year = currentDate.getFullYear();
             month--; if (month < 0) { month = 11; year--; }
@@ -325,7 +498,28 @@
             updateMonth(year, month);
         };
 
-        updateMonth(currentDate.getFullYear(), currentDate.getMonth());
+        // 🚀 Инициализация приложения
+        async function initApp() {
+            try {
+                await vkBridge.send('VKWebAppInit');
+                await vkBridge.send('VKWebAppAllowUserInfo');
+                
+                console.log('✅ VK Bridge инициализирован');
+                
+                // Загружаем прогресс пользователя из облака ВК
+                completedDays = await loadProgress();
+                console.log('✅ Загружено выполненных дней:', completedDays.length);
+                
+                // Запускаем календарь
+                updateMonth(currentDate.getFullYear(), currentDate.getMonth());
+            } catch (error) {
+                console.error('❌ Ошибка инициализации:', error);
+                showError(`Ошибка запуска:<br><strong>${error.message}</strong>`);
+            }
+        }
+
+        // Запуск
+        initApp();
     </script>
 </body>
 </html>
