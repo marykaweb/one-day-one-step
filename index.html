@@ -34,6 +34,8 @@
             font-weight: 500;
         }
         .nav-btn:disabled { background: #ccc; cursor: not-allowed; }
+        .nav-btn:active { opacity: 0.9; }
+        
         .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
         .weekday {
             text-align: center;
@@ -54,6 +56,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: background 0.1s;
             position: relative;
         }
         .day:hover { background: #e1e3e6; }
@@ -79,6 +82,8 @@
             bottom: auto;
             top: 2px;
             right: 4px;
+            width: auto;
+            height: auto;
             font-size: 10px;
             background: transparent;
         }
@@ -94,6 +99,9 @@
         }
         #task-box h3 { margin: 0 0 12px 0; font-size: 16px; font-weight: 600; }
         #task-text { margin: 0 0 12px 0; line-height: 1.6; font-size: 14px; white-space: pre-wrap; }
+        #task-text a { color: #0077FF; text-decoration: none; }
+        #task-text a:hover { text-decoration: underline; }
+        .task-tag { color: #0077FF; font-weight: 500; }
         .status { font-size: 13px; margin: 0; padding-top: 10px; border-top: 1px solid #e1e3e6; }
         .status-ok { color: #4BB34B; }
         .status-wait { color: #FF9500; }
@@ -110,44 +118,34 @@
             font-weight: 600;
             cursor: pointer;
             margin-top: 12px;
+            transition: background 0.2s;
         }
         .complete-btn:hover { background: #3d9c3d; }
-        .complete-btn.completed { background: #ccc; cursor: default; }
+        .complete-btn.completed {
+            background: #ccc;
+            cursor: default;
+        }
         
         .loading { text-align: center; color: #888; padding: 30px; }
-        
-        /* Блок диагностики — всегда виден */
-        .diagnostic {
-            background: #f8f9fa;
-            border: 2px solid #dee2e6;
-            border-radius: 8px;
-            padding: 12px;
+        .error { 
+            background: #fff2f2; 
+            color: #FF3B30; 
+            padding: 15px; 
+            border-radius: 8px; 
             margin: 10px 0;
-            font-size: 12px;
-            font-family: monospace;
-            white-space: pre-wrap;
-            word-break: break-all;
+            font-size: 13px;
         }
-        .diagnostic-success { background: #d4edda; border-color: #28a745; }
-        .diagnostic-error { background: #f8d7da; border-color: #dc3545; color: #721c24; }
-        .diagnostic-warning { background: #fff3cd; border-color: #ffc107; }
-        
-        .step { margin: 8px 0; padding: 6px; border-left: 3px solid #ccc; }
-        .step-ok { border-left-color: #28a745; }
-        .step-error { border-left-color: #dc3545; }
-        .step-pending { border-left-color: #ffc107; }
     </style>
 </head>
 <body>
 
     <div class="header">
         <button class="nav-btn" id="prevBtn">◀</button>
-        <h2 id="monthTitle">Диагностика...</h2>
+        <h2 id="monthTitle">Загрузка...</h2>
         <button class="nav-btn" id="nextBtn">▶</button>
     </div>
 
-    <!-- БЛОК ДИАГНОСТИКИ -->
-    <div id="diagnostic-box" class="diagnostic">Запуск диагностики...</div>
+    <div id="error-box" style="display:none;"></div>
 
     <div class="calendar" id="weekdays">
         <div class="weekday">Пн</div><div class="weekday">Вт</div><div class="weekday">Ср</div>
@@ -168,7 +166,7 @@
         // 🔧 НАСТРОЙКИ
         const BASE_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQeJ5SzWpqpRRRUR4R4iX_YNhhnmp_6RFpoYuRSXYSYJ7igpnMeqxNogOo3H-dnwMX_La9U5sTMaLsN/pub?output=csv&gid=';
         const SHEETS_GID = {
-            'Март 2026': '0',  // ← ПРОВЕРЬТЕ ЭТОТ GID!
+            'Март 2026': '0',  // ← Ваш GID листа
         };
         const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
         const STORAGE_KEY = 'marathon_oneday_onestep_2026';
@@ -176,66 +174,37 @@
         let tasksData = {};
         let completedDays = [];
         let currentDate = new Date();
+        let isLoading = false;
         let isVKMode = false;
+        let vkBridgeReady = false;
 
-        const diagnosticBox = document.getElementById('diagnostic-box');
         const calendarEl = document.getElementById('calendar');
         const monthTitleEl = document.getElementById('monthTitle');
         const taskBox = document.getElementById('task-box');
         const taskTextEl = document.getElementById('task-text');
         const completeBtn = document.getElementById('completeBtn');
+        const errorBox = document.getElementById('error-box');
 
-        // 📝 Логирование в диагностический блок
-        let diagnosticLog = [];
-        function log(message, type = 'info') {
-            diagnosticLog.push({ message, type, time: new Date().toLocaleTimeString() });
-            renderDiagnostic();
-            console.log(`[${type.toUpperCase()}] ${message}`);
-        }
-
-        function renderDiagnostic() {
-            diagnosticBox.innerHTML = diagnosticLog.map(entry => 
-                `<div class="step step-${entry.type === 'error' ? 'error' : entry.type === 'success' ? 'ok' : 'pending'}">
-                    <strong>[${entry.time}]</strong> ${entry.message}
-                </div>`
-            ).join('');
-            
-            const hasError = diagnosticLog.some(e => e.type === 'error');
-            diagnosticBox.className = 'diagnostic ' + (hasError ? 'diagnostic-error' : 'diagnostic-warning');
-        }
-
-        // 🔍 Проверка режима
+        // 🔍 Определение режима (ВК или браузер)
         function detectVKMode() {
-            log('Проверка режима запуска...', 'info');
             const href = window.location.href;
-            const isVK = href.includes('vk.com') || href.includes('vk-apps.com');
-            isVKMode = isVK;
-            log(`Режим: ${isVK ? 'ВКонтакте ☁️' : 'Браузер (GitHub Pages) 💻'}`, isVK ? 'success' : 'info');
-            log(`URL: ${href.substring(0, 50)}...`, 'info');
-            return isVK;
+            return href.includes('vk.com') || href.includes('vk-apps.com');
         }
 
-        // 📄 Парсинг CSV
+        // 📄 Парсинг CSV с поддержкой многострочных ячеек
         function parseCSV(csvText) {
-            log(`Парсинг CSV (${csvText.length} байт)...`, 'info');
             const result = {};
             const lines = csvText.split(/\r?\n/);
-            log(`Всего строк: ${lines.length}`, 'info');
             
-            if (lines.length < 2) {
-                throw new Error('Слишком мало строк в CSV');
-            }
+            if (lines.length < 2) return result;
             
             const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-            log(`Заголовки: ${headers.join(', ')}`, 'info');
-            
             const dayIdx = headers.indexOf('День');
             const taskIdx = headers.indexOf('Задание');
             
             if (dayIdx === -1 || taskIdx === -1) {
-                throw new Error(`Не найдены колонки. День=${dayIdx}, Задание=${taskIdx}`);
+                throw new Error('Не найдены колонки "День" или "Задание"');
             }
-            log(`Индексы колонок: День=${dayIdx}, Задание=${taskIdx}`, 'success');
             
             let currentLine = '';
             let inQuotes = false;
@@ -245,6 +214,7 @@
                 currentLine += (currentLine ? '\n' : '') + lines[i];
                 const quotes = (currentLine.match(/"/g) || []).length;
                 inQuotes = quotes % 2 !== 0;
+                
                 if (!inQuotes) {
                     processedLines.push(currentLine);
                     currentLine = '';
@@ -252,106 +222,85 @@
             }
             if (currentLine) processedLines.push(currentLine);
             
-            log(`Обработано строк с данными: ${processedLines.length}`, 'info');
-            
             for (const line of processedLines) {
                 if (!line.trim()) continue;
                 const commaIndex = line.indexOf(',');
                 if (commaIndex === -1) continue;
+                
                 const day = parseInt(line.substring(0, commaIndex).trim());
                 let task = line.substring(commaIndex + 1).trim();
+                
                 if (task.startsWith('"') && task.endsWith('"')) {
                     task = task.slice(1, -1).replace(/""/g, '"');
                 }
+                
                 if (day >= 1 && day <= 31 && task) {
                     result[day] = task;
-                    log(`✓ День ${day} загружен`, 'success');
                 }
             }
             
-            log(`Итого загружено дней: ${Object.keys(result).length}`, 'success');
             return result;
         }
 
+        // ✨ Форматирование текста (теги, ссылки)
         function formatTaskText(text) {
             if (!text) return '✨ Нет задания';
-            let formatted = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            formatted = formatted.replace(/(#\w+)/g, '<span style="color:#0077FF;font-weight:500">$1</span>');
+            let formatted = text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            formatted = formatted.replace(/(#\w+)/g, '<span class="task-tag">$1</span>');
+            formatted = formatted.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank">$1</a>');
             return formatted;
         }
 
-        // 💾 Сохранение (ТОЛЬКО localStorage вне ВК)
+        // 💾 Сохранение прогресса
         function saveProgress() {
-            try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(completedDays));
-                log('Прогресс сохранён в localStorage', 'success');
-            } catch (e) {
-                log(`Ошибка сохранения: ${e.message}`, 'error');
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(completedDays));
+            
+            if (isVKMode && vkBridgeReady) {
+                vkBridge.send('VKWebAppStorageSet', {
+                    key: STORAGE_KEY,
+                    value: JSON.stringify(completedDays)
+                }).catch(() => {});
             }
         }
 
+        // 📥 Загрузка прогресса
         function loadProgress() {
-            try {
-                const local = localStorage.getItem(STORAGE_KEY);
-                if (local) {
-                    const data = JSON.parse(local);
-                    log(`Загружено ${data.length} выполненных дней из localStorage`, 'success');
-                    return data;
+            const local = localStorage.getItem(STORAGE_KEY);
+            if (local) {
+                try {
+                    return JSON.parse(local);
+                } catch (e) {
+                    return [];
                 }
-                log('Нет сохранённых данных', 'info');
-                return [];
-            } catch (e) {
-                log(`Ошибка загрузки прогресса: ${e.message}`, 'error');
-                return [];
             }
+            return [];
         }
 
-        // 🔄 Загрузка из Google Таблицы
+        // 🔄 Загрузка заданий из Google Таблицы
         async function loadTasks(year, monthIndex) {
             const sheetKey = `${MONTHS_RU[monthIndex]} ${year}`;
             const gid = SHEETS_GID[sheetKey];
             
-            log(`📋 Ищем лист: "${sheetKey}"`, 'info');
-            
             if (!gid) {
-                throw new Error(`❌ Лист "${sheetKey}" не найден в настройках SHEETS_GID`);
+                throw new Error(`Лист "${sheetKey}" не найден`);
             }
-            log(`✓ GID найден: ${gid}`, 'success');
             
             const url = `${BASE_CSV_URL}${gid}`;
-            log(`🌐 Запрос URL: ${url}`, 'info');
+            const response = await fetch(url);
             
-            // Проверка доступности URL
-            try {
-                const response = await fetch(url, { 
-                    method: 'GET',
-                    mode: 'cors',
-                    cache: 'no-cache'
-                });
-                
-                log(`📡 Статус ответа: ${response.status} ${response.ok ? '✓' : '✗'}`, response.ok ? 'success' : 'error');
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const csvText = await response.text();
-                log(`📄 Получено байт: ${csvText.length}`, 'success');
-                
-                // Показываем первые 200 символов для проверки
-                log(`📝 Начало данных: "${csvText.substring(0, 200)}..."`, 'info');
-                
-                return parseCSV(csvText);
-            } catch (e) {
-                log(`❌ Ошибка fetch: ${e.message}`, 'error');
-                log(`Возможные причины: 1) Таблица не опубликована 2) Неверный GID 3) CORS`, 'error');
-                throw e;
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
             }
+            
+            const csvText = await response.text();
+            return parseCSV(csvText);
         }
 
         // 📅 Отрисовка календаря
         function renderCalendar(year, monthIndex) {
-            log('Отрисовка календаря...', 'info');
             calendarEl.innerHTML = '';
             monthTitleEl.textContent = `${MONTHS_RU[monthIndex]} ${year}`;
             
@@ -381,10 +330,9 @@
                 dayDiv.onclick = () => showTask(day, year, monthIndex, dayDiv);
                 calendarEl.appendChild(dayDiv);
             }
-            
-            log(`✓ Календарь отрисован (${daysInMonth} дней)`, 'success');
         }
 
+        // 👁 Показать задание
         function showTask(day, year, monthIndex, clickedEl) {
             document.querySelectorAll('.day').forEach(d => d.classList.remove('active'));
             clickedEl.classList.add('active');
@@ -420,8 +368,10 @@
             }
             
             taskBox.style.display = 'block';
+            taskBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
+        // ✅ Отметить день как выполненный
         function markDayComplete(day) {
             if (!completedDays.includes(day)) {
                 completedDays.push(day);
@@ -439,18 +389,26 @@
             }
         }
 
+        // 🔘 Обновление кнопок навигации
         function updateNavButtons(year, monthIndex) {
             const prevBtn = document.getElementById('prevBtn');
             const nextBtn = document.getElementById('nextBtn');
+            
             const prevMonth = monthIndex === 0 ? 11 : monthIndex - 1;
             const prevYear = monthIndex === 0 ? year - 1 : year;
             const nextMonth = monthIndex === 11 ? 0 : monthIndex + 1;
             const nextYear = monthIndex === 11 ? year + 1 : year;
+            
             prevBtn.disabled = !SHEETS_GID[`${MONTHS_RU[prevMonth]} ${prevYear}`];
             nextBtn.disabled = !SHEETS_GID[`${MONTHS_RU[nextMonth]} ${nextYear}`];
         }
 
+        // 🔄 Обновление месяца
         async function updateMonth(year, monthIndex) {
+            if (isLoading) return;
+            isLoading = true;
+            
+            errorBox.style.display = 'none';
             calendarEl.innerHTML = '<div class="loading">⏳ Загрузка...</div>';
             taskBox.style.display = 'none';
             
@@ -458,25 +416,26 @@
                 tasksData = await loadTasks(year, monthIndex);
                 
                 if (Object.keys(tasksData).length === 0) {
-                    log('⚠️ Задания не найдены в таблице', 'error');
+                    showError('Задания не найдены. Проверьте таблицу.');
                 } else {
                     renderCalendar(year, monthIndex);
                     updateNavButtons(year, monthIndex);
-                    diagnosticBox.className = 'diagnostic diagnostic-success';
                 }
             } catch (error) {
-                log(`❌ КРИТИЧЕСКАЯ ОШИБКА: ${error.message}`, 'error');
-                calendarEl.innerHTML = `<div class="diagnostic diagnostic-error">
-                    <strong>Ошибка загрузки:</strong><br>
-                    ${error.message}<br><br>
-                    <strong>Что проверить:</strong><br>
-                    1. Опубликована ли таблица (Файл → Поделиться → Опубликовать)<br>
-                    2. Правильный ли GID в настройках<br>
-                    3. Заголовки колонок точно "День" и "Задание"
-                </div>`;
+                showError(`Ошибка: ${error.message}`);
             }
+            
+            isLoading = false;
         }
 
+        // ⚠️ Показать ошибку
+        function showError(message) {
+            errorBox.innerHTML = `<div class="error">${message}</div>`;
+            errorBox.style.display = 'block';
+            calendarEl.innerHTML = '';
+        }
+
+        // 🎯 Обработчики навигации
         document.getElementById('prevBtn').onclick = () => {
             let month = currentDate.getMonth(), year = currentDate.getFullYear();
             month--; if (month < 0) { month = 11; year--; }
@@ -491,35 +450,24 @@
             updateMonth(year, month);
         };
 
-        // 🚀 ЗАПУСК С ДИАГНОСТИКОЙ
+        // 🚀 Инициализация
         async function initApp() {
-            log('=== ЗАПУСК ПРИЛОЖЕНИЯ ===', 'info');
-            log(`Время: ${new Date().toLocaleString()}`, 'info');
-            log(`User Agent: ${navigator.userAgent.substring(0, 50)}...`, 'info');
+            isVKMode = detectVKMode();
             
-            // 1. Определяем режим
-            detectVKMode();
-            
-            // 2. VK Bridge ТОЛЬКО если в ВК (без await чтобы не блокировать)
             if (isVKMode && window.vkBridge) {
-                log('Инициализация VK Bridge...', 'info');
-                vkBridge.send('VKWebAppInit')
-                    .then(() => log('✓ VK Bridge инициализирован', 'success'))
-                    .catch(e => log(`⚠️ VK Bridge ошибка: ${e.message}`, 'warning'));
-            } else {
-                log('VK Bridge не используется (не ВКонтакте)', 'info');
+                try {
+                    await vkBridge.send('VKWebAppInit');
+                    vkBridgeReady = true;
+                } catch (e) {
+                    vkBridgeReady = false;
+                }
             }
             
-            // 3. Загружаем прогресс
             completedDays = loadProgress();
-            
-            // 4. Загружаем календарь
-            await updateMonth(currentDate.getFullYear(), currentDate.getMonth());
-            
-            log('=== ЗАПУСК ЗАВЕРШЁН ===', 'success');
+            updateMonth(currentDate.getFullYear(), currentDate.getMonth());
         }
 
-        // Старт
+        // Запуск
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initApp);
         } else {
