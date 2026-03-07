@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Календарь Заданий</title>
+    <!-- Подключаем SDK ВКонтакте -->
+    <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #fff; }
+        h1 { text-align: center; color: #0077FF; }
+        
+        /* Стили для календаря */
+        .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-bottom: 20px; }
+        .day { 
+            padding: 10px; 
+            background: #f0f2f5; 
+            border-radius: 8px; 
+            text-align: center; 
+            cursor: pointer; 
+            font-weight: bold;
+        }
+        .day:hover { background: #e1e3e6; }
+        .day.active { background: #0077FF; color: white; }
+        .day.has-task { border: 2px solid #4BB34B; } /* Зеленая рамка, если есть задание */
+
+        /* Блок с заданием */
+        #task-box { 
+            background: #f0f2f5; 
+            padding: 15px; 
+            border-radius: 10px; 
+            margin-top: 20px;
+            display: none; /* Скрыт по умолчанию */
+        }
+        .status-ok { color: green; font-weight: bold; }
+        .status-wait { color: orange; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>📅 Твои задания</h1>
+    <div id="calendar" class="calendar"></div>
+
+    <div id="task-box">
+        <h3>Задание на <span id="date-title"></span>:</h3>
+        <p id="task-text"></p>
+        <hr>
+        <p>Статус: <span id="task-status" class="status-wait">Ожидает выполнения</span></p>
+    </div>
+
+    <script>
+        // 1. Инициализация VK Bridge
+        vkBridge.send('VKWebAppInit');
+
+        // 2. База данных заданий (в будущем можно вынести в отдельный файл)
+        // Формат: "ГГГГ-ММ-ДД": "Текст задания"
+        const tasksDB = {
+            "2023-10-25": "Сделать 50 приседаний и записать видео",
+            "2023-10-26": "Прочитать 10 страниц книги",
+            "2023-10-27": "Выпить 2 литра воды сегодня",
+            "2023-11-01": "Большой челлендж: день без сахара!"
+        };
+
+        const calendarEl = document.getElementById('calendar');
+        const taskBox = document.getElementById('task-box');
+        
+        // 3. Генерация календаря (упрощенно на 30 дней для примера)
+        // В реальном проекте лучше использовать библиотеку типа FullCalendar
+        const today = new Date();
+        for (let i = 1; i <= 30; i++) {
+            const dayDiv = document.createElement('div');
+            dayDiv.className = 'day';
+            dayDiv.innerText = i;
+            
+            // Формируем дату для проверки (упрощенно считаем текущий месяц)
+            const currentMonth = today.getMonth() + 1; 
+            const dateKey = `${today.getFullYear()}-${String(currentMonth).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+            
+            // Если на эту дату есть задание, помечаем визуально
+            if (tasksDB[dateKey]) {
+                dayDiv.classList.add('has-task');
+                dayDiv.title = "Задание есть!";
+            }
+
+            // Обработка клика
+            dayDiv.onclick = () => {
+                // Убираем выделение с других
+                document.querySelectorAll('.day').forEach(d => d.classList.remove('active'));
+                dayDiv.classList.add('active');
+
+                // Показываем задание
+                const task = tasksDB[dateKey];
+                document.getElementById('date-title').innerText = `${i}.${currentMonth}`;
+                
+                if (task) {
+                    document.getElementById('task-text').innerText = task;
+                    document.getElementById('task-status').innerText = "Ожидает выполнения";
+                    document.getElementById('task-status').className = "status-wait";
+                } else {
+                    document.getElementById('task-text').innerText = "На этот день заданий нет, отдыхай!";
+                    document.getElementById('task-status').innerText = "Выходной";
+                    document.getElementById('task-status').className = "status-ok";
+                }
+                taskBox.style.display = 'block';
+            };
+
+            calendarEl.appendChild(dayDiv);
+        }
+    </script>
+</body>
+</html>
