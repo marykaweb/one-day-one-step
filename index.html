@@ -4,108 +4,271 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Календарь Заданий</title>
-    <!-- Подключаем SDK ВКонтакте -->
     <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #fff; }
-        h1 { text-align: center; color: #0077FF; }
-        
-        /* Стили для календаря */
-        .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-bottom: 20px; }
+        * { box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            padding: 15px; 
+            background: #fff; 
+            margin: 0;
+            color: #000;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #e1e3e6;
+        }
+        .header h2 { margin: 0; font-size: 18px; }
+        .nav-btn {
+            background: #0077FF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .nav-btn:disabled { background: #ccc; cursor: not-allowed; }
+        .calendar { 
+            display: grid; 
+            grid-template-columns: repeat(7, 1fr); 
+            gap: 4px; 
+        }
+        .weekday {
+            text-align: center;
+            font-size: 11px;
+            color: #888;
+            padding: 5px;
+            font-weight: 500;
+        }
         .day { 
-            padding: 10px; 
+            padding: 12px 5px; 
             background: #f0f2f5; 
             border-radius: 8px; 
             text-align: center; 
             cursor: pointer; 
-            font-weight: bold;
+            font-size: 14px;
+            min-height: 45px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .day:hover { background: #e1e3e6; }
         .day.active { background: #0077FF; color: white; }
-        .day.has-task { border: 2px solid #4BB34B; } /* Зеленая рамка, если есть задание */
-
-        /* Блок с заданием */
-        #task-box { 
-            background: #f0f2f5; 
-            padding: 15px; 
-            border-radius: 10px; 
-            margin-top: 20px;
-            display: none; /* Скрыт по умолчанию */
+        .day.has-task { border: 2px solid #4BB34B; position: relative; }
+        .day.has-task::after {
+            content: '';
+            position: absolute;
+            bottom: 4px;
+            width: 6px;
+            height: 6px;
+            background: #4BB34B;
+            border-radius: 50%;
         }
-        .status-ok { color: green; font-weight: bold; }
-        .status-wait { color: orange; font-weight: bold; }
+        .day.empty { background: transparent; cursor: default; }
+        .day.today { border: 2px solid #0077FF; font-weight: bold; }
+        #task-box { 
+            background: #f5f7fa; 
+            padding: 15px; 
+            border-radius: 12px; 
+            margin-top: 20px;
+            display: none;
+        }
+        #task-box h3 { margin: 0 0 10px 0; font-size: 16px; }
+        #task-text { margin: 0 0 10px 0; line-height: 1.4; }
+        .status { font-size: 13px; margin: 0; }
+        .status-ok { color: #4BB34B; }
+        .status-wait { color: #FF9500; }
+        .loading { text-align: center; color: #888; padding: 20px; }
     </style>
 </head>
 <body>
 
-    <h1>📅 Твои задания</h1>
-    <div id="calendar" class="calendar"></div>
+    <div class="header">
+        <button class="nav-btn" id="prevBtn">◀</button>
+        <h2 id="monthTitle">Загрузка...</h2>
+        <button class="nav-btn" id="nextBtn">▶</button>
+    </div>
+
+    <div class="calendar" id="weekdays">
+        <div class="weekday">Пн</div><div class="weekday">Вт</div><div class="weekday">Ср</div>
+        <div class="weekday">Чт</div><div class="weekday">Пт</div><div class="weekday">Сб</div><div class="weekday">Вс</div>
+    </div>
+    <div class="calendar" id="calendar"></div>
 
     <div id="task-box">
-        <h3>Задание на <span id="date-title"></span>:</h3>
+        <h3>📌 <span id="date-title"></span></h3>
         <p id="task-text"></p>
-        <hr>
-        <p>Статус: <span id="task-status" class="status-wait">Ожидает выполнения</span></p>
+        <p class="status">Статус: <span id="task-status"></span></p>
     </div>
 
     <script>
-        // 1. Инициализация VK Bridge
         vkBridge.send('VKWebAppInit');
 
-        // 2. База данных заданий (в будущем можно вынести в отдельный файл)
-        // Формат: "ГГГГ-ММ-ДД": "Текст задания"
-        const tasksDB = {
-            "2023-10-25": "Сделать 50 приседаний и записать видео",
-            "2023-10-26": "Прочитать 10 страниц книги",
-            "2023-10-27": "Выпить 2 литра воды сегодня",
-            "2023-11-01": "Большой челлендж: день без сахара!"
+        // 🔧 === НАСТРОЙКИ — редактируйте только здесь ===
+        const BASE_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQeJ5SzWpqpRRRUR4R4iX_YNhhnmp_6RFpoYuRSXYSYJ7igpnMeqxNogOo3H-dnwMX_La9U5sTMaLsN/pub?output=csv&gid=';
+        
+        // 📋 СПИСОК ЛИСТОВ: "Название как в таблице" → "gid из адресной строки"
+        const SHEETS_GID = {
+            'Март 2026': '0',
+            // Примеры для будущих месяцев (раскомментируйте и заполните):
+            // 'Апрель 2026': '1234567890',
+            // 'Май 2026': '0987654321',
         };
 
+        const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+        // === КОНЕЦ НАСТРОЕК ===
+
+        let tasksData = {};
+        let currentDate = new Date();
+        let isLoading = false;
+
         const calendarEl = document.getElementById('calendar');
+        const monthTitleEl = document.getElementById('monthTitle');
         const taskBox = document.getElementById('task-box');
-        
-        // 3. Генерация календаря (упрощенно на 30 дней для примера)
-        // В реальном проекте лучше использовать библиотеку типа FullCalendar
-        const today = new Date();
-        for (let i = 1; i <= 30; i++) {
-            const dayDiv = document.createElement('div');
-            dayDiv.className = 'day';
-            dayDiv.innerText = i;
-            
-            // Формируем дату для проверки (упрощенно считаем текущий месяц)
-            const currentMonth = today.getMonth() + 1; 
-            const dateKey = `${today.getFullYear()}-${String(currentMonth).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-            
-            // Если на эту дату есть задание, помечаем визуально
-            if (tasksDB[dateKey]) {
-                dayDiv.classList.add('has-task');
-                dayDiv.title = "Задание есть!";
+
+        // 📄 Парсинг CSV с русскими заголовками "День" и "Задание"
+        function parseCSV(csvText) {
+            const lines = csvText.trim().split('\n').filter(l => l.trim());
+            if (lines.length < 2) return {};
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            const dayIdx = headers.indexOf('День');
+            const taskIdx = headers.indexOf('Задание');
+            if (dayIdx === -1 || taskIdx === -1) {
+                console.error('❌ Не найдены колонки "День" или "Задание". Заголовки:', headers);
+                return {};
             }
-
-            // Обработка клика
-            dayDiv.onclick = () => {
-                // Убираем выделение с других
-                document.querySelectorAll('.day').forEach(d => d.classList.remove('active'));
-                dayDiv.classList.add('active');
-
-                // Показываем задание
-                const task = tasksDB[dateKey];
-                document.getElementById('date-title').innerText = `${i}.${currentMonth}`;
-                
-                if (task) {
-                    document.getElementById('task-text').innerText = task;
-                    document.getElementById('task-status').innerText = "Ожидает выполнения";
-                    document.getElementById('task-status').className = "status-wait";
-                } else {
-                    document.getElementById('task-text').innerText = "На этот день заданий нет, отдыхай!";
-                    document.getElementById('task-status').innerText = "Выходной";
-                    document.getElementById('task-status').className = "status-ok";
+            const result = {};
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+                if (values.length > Math.max(dayIdx, taskIdx)) {
+                    const day = parseInt(values[dayIdx]);
+                    const task = values[taskIdx];
+                    if (day && task && day >= 1 && day <= 31) result[day] = task;
                 }
-                taskBox.style.display = 'block';
-            };
-
-            calendarEl.appendChild(dayDiv);
+            }
+            return result;
         }
+
+        // 🔄 Загрузка заданий для месяца
+        async function loadTasks(year, monthIndex) {
+            const sheetKey = `${MONTHS_RU[monthIndex]} ${year}`;
+            const gid = SHEETS_GID[sheetKey];
+            if (!gid) {
+                console.warn(`⚠️ Лист "${sheetKey}" не найден в SHEETS_GID`);
+                return {};
+            }
+            const url = `${BASE_CSV_URL}${gid}`;
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Network error');
+                const csvText = await response.text();
+                return parseCSV(csvText);
+            } catch (error) {
+                console.error('Ошибка загрузки:', error);
+                return {};
+            }
+        }
+
+        // 📅 Отрисовка календаря
+        function renderCalendar(year, monthIndex) {
+            calendarEl.innerHTML = '';
+            monthTitleEl.textContent = `${MONTHS_RU[monthIndex]} ${year}`;
+            
+            const firstDay = new Date(year, monthIndex, 1);
+            const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+            let startDay = firstDay.getDay() - 1;
+            if (startDay < 0) startDay = 6;
+            
+            for (let i = 0; i < startDay; i++) {
+                const empty = document.createElement('div');
+                empty.className = 'day empty';
+                calendarEl.appendChild(empty);
+            }
+            
+            const today = new Date();
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayDiv = document.createElement('div');
+                dayDiv.className = 'day';
+                dayDiv.textContent = day;
+                if (tasksData[day]) dayDiv.classList.add('has-task');
+                if (year === today.getFullYear() && monthIndex === today.getMonth() && day === today.getDate()) {
+                    dayDiv.classList.add('today');
+                }
+                dayDiv.onclick = () => showTask(day, year, monthIndex, dayDiv);
+                calendarEl.appendChild(dayDiv);
+            }
+        }
+
+        // 👁 Показать задание
+        function showTask(day, year, monthIndex, clickedEl) {
+            document.querySelectorAll('.day').forEach(d => d.classList.remove('active'));
+            clickedEl.classList.add('active');
+            
+            document.getElementById('date-title').textContent = `${day} ${MONTHS_RU[monthIndex]} ${year}`;
+            const task = tasksData[day];
+            const taskText = document.getElementById('task-text');
+            const taskStatus = document.getElementById('task-status');
+            
+            if (task) {
+                taskText.textContent = task;
+                taskStatus.textContent = 'Ожидает выполнения';
+                taskStatus.className = 'status-wait';
+            } else {
+                taskText.textContent = '✨ На этот день заданий нет';
+                taskStatus.textContent = 'Свободный день';
+                taskStatus.className = 'status-ok';
+            }
+            taskBox.style.display = 'block';
+        }
+
+        // 🔄 Обновление месяца
+        async function updateMonth(year, monthIndex) {
+            if (isLoading) return;
+            isLoading = true;
+            calendarEl.innerHTML = '<div class="loading">Загрузка...</div>';
+            taskBox.style.display = 'none';
+            
+            tasksData = await loadTasks(year, monthIndex);
+            renderCalendar(year, monthIndex);
+            updateNavButtons(year, monthIndex);
+            isLoading = false;
+        }
+
+        // 🔘 Обновление состояния кнопок
+        function updateNavButtons(year, monthIndex) {
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+            
+            const prevMonth = monthIndex === 0 ? 11 : monthIndex - 1;
+            const prevYear = monthIndex === 0 ? year - 1 : year;
+            const nextMonth = monthIndex === 11 ? 0 : monthIndex + 1;
+            const nextYear = monthIndex === 11 ? year + 1 : year;
+            
+            prevBtn.disabled = !SHEETS_GID[`${MONTHS_RU[prevMonth]} ${prevYear}`];
+            nextBtn.disabled = !SHEETS_GID[`${MONTHS_RU[nextMonth]} ${nextYear}`];
+        }
+
+        // 🎯 Обработчики кнопок
+        document.getElementById('prevBtn').onclick = () => {
+            let month = currentDate.getMonth(), year = currentDate.getFullYear();
+            month--; if (month < 0) { month = 11; year--; }
+            currentDate = new Date(year, month, 1);
+            updateMonth(year, month);
+        };
+        document.getElementById('nextBtn').onclick = () => {
+            let month = currentDate.getMonth(), year = currentDate.getFullYear();
+            month++; if (month > 11) { month = 0; year++; }
+            currentDate = new Date(year, month, 1);
+            updateMonth(year, month);
+        };
+
+        // 🚀 Старт
+        updateMonth(currentDate.getFullYear(), currentDate.getMonth());
     </script>
 </body>
 </html>
