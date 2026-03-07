@@ -34,8 +34,6 @@
             font-weight: 500;
         }
         .nav-btn:disabled { background: #ccc; cursor: not-allowed; }
-        .nav-btn:active { opacity: 0.9; }
-        
         .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
         .weekday {
             text-align: center;
@@ -56,7 +54,6 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: background 0.1s;
             position: relative;
         }
         .day:hover { background: #e1e3e6; }
@@ -82,8 +79,6 @@
             bottom: auto;
             top: 2px;
             right: 4px;
-            width: auto;
-            height: auto;
             font-size: 10px;
             background: transparent;
         }
@@ -99,9 +94,6 @@
         }
         #task-box h3 { margin: 0 0 12px 0; font-size: 16px; font-weight: 600; }
         #task-text { margin: 0 0 12px 0; line-height: 1.6; font-size: 14px; white-space: pre-wrap; }
-        #task-text a { color: #0077FF; text-decoration: none; }
-        #task-text a:hover { text-decoration: underline; }
-        .task-tag { color: #0077FF; font-weight: 500; }
         .status { font-size: 13px; margin: 0; padding-top: 10px; border-top: 1px solid #e1e3e6; }
         .status-ok { color: #4BB34B; }
         .status-wait { color: #FF9500; }
@@ -118,57 +110,44 @@
             font-weight: 600;
             cursor: pointer;
             margin-top: 12px;
-            transition: background 0.2s;
         }
         .complete-btn:hover { background: #3d9c3d; }
-        .complete-btn.completed {
-            background: #ccc;
-            cursor: default;
-        }
+        .complete-btn.completed { background: #ccc; cursor: default; }
         
         .loading { text-align: center; color: #888; padding: 30px; }
-        .error { 
-            background: #fff2f2; 
-            color: #FF3B30; 
-            padding: 15px; 
-            border-radius: 8px; 
+        
+        /* Блок диагностики — всегда виден */
+        .diagnostic {
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            padding: 12px;
             margin: 10px 0;
-            font-size: 13px;
-        }
-        .debug {
-            background: #f0f0f0;
-            padding: 10px;
-            border-radius: 6px;
-            font-size: 11px;
-            margin-top: 10px;
+            font-size: 12px;
             font-family: monospace;
-            display: block;
+            white-space: pre-wrap;
+            word-break: break-all;
         }
-        .mode-indicator {
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 10px;
-            z-index: 1000;
-        }
+        .diagnostic-success { background: #d4edda; border-color: #28a745; }
+        .diagnostic-error { background: #f8d7da; border-color: #dc3545; color: #721c24; }
+        .diagnostic-warning { background: #fff3cd; border-color: #ffc107; }
+        
+        .step { margin: 8px 0; padding: 6px; border-left: 3px solid #ccc; }
+        .step-ok { border-left-color: #28a745; }
+        .step-error { border-left-color: #dc3545; }
+        .step-pending { border-left-color: #ffc107; }
     </style>
 </head>
 <body>
 
-    <div class="mode-indicator" id="modeIndicator">Проверка...</div>
-
     <div class="header">
         <button class="nav-btn" id="prevBtn">◀</button>
-        <h2 id="monthTitle">Загрузка...</h2>
+        <h2 id="monthTitle">Диагностика...</h2>
         <button class="nav-btn" id="nextBtn">▶</button>
     </div>
 
-    <div id="error-box" style="display:none;"></div>
-    <div id="debug-box" class="debug"></div>
+    <!-- БЛОК ДИАГНОСТИКИ -->
+    <div id="diagnostic-box" class="diagnostic">Запуск диагностики...</div>
 
     <div class="calendar" id="weekdays">
         <div class="weekday">Пн</div><div class="weekday">Вт</div><div class="weekday">Ср</div>
@@ -186,65 +165,77 @@
     </div>
 
     <script>
-        // 🔧 === НАСТРОЙКИ ===
+        // 🔧 НАСТРОЙКИ
         const BASE_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQeJ5SzWpqpRRRUR4R4iX_YNhhnmp_6RFpoYuRSXYSYJ7igpnMeqxNogOo3H-dnwMX_La9U5sTMaLsN/pub?output=csv&gid=';
-        
         const SHEETS_GID = {
-            'Март 2026': '0',  // ← ПРОВЕРЬТЕ GID!
+            'Март 2026': '0',  // ← ПРОВЕРЬТЕ ЭТОТ GID!
         };
-
         const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
         const STORAGE_KEY = 'marathon_oneday_onestep_2026';
-        // === КОНЕЦ НАСТРОЕК ===
 
         let tasksData = {};
         let completedDays = [];
         let currentDate = new Date();
-        let isLoading = false;
         let isVKMode = false;
-        let vkBridgeReady = false;
 
+        const diagnosticBox = document.getElementById('diagnostic-box');
         const calendarEl = document.getElementById('calendar');
         const monthTitleEl = document.getElementById('monthTitle');
         const taskBox = document.getElementById('task-box');
         const taskTextEl = document.getElementById('task-text');
         const completeBtn = document.getElementById('completeBtn');
-        const errorBox = document.getElementById('error-box');
-        const debugBox = document.getElementById('debug-box');
-        const modeIndicator = document.getElementById('modeIndicator');
 
-        // 🔍 Определяем, запущены ли внутри ВК
+        // 📝 Логирование в диагностический блок
+        let diagnosticLog = [];
+        function log(message, type = 'info') {
+            diagnosticLog.push({ message, type, time: new Date().toLocaleTimeString() });
+            renderDiagnostic();
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function renderDiagnostic() {
+            diagnosticBox.innerHTML = diagnosticLog.map(entry => 
+                `<div class="step step-${entry.type === 'error' ? 'error' : entry.type === 'success' ? 'ok' : 'pending'}">
+                    <strong>[${entry.time}]</strong> ${entry.message}
+                </div>`
+            ).join('');
+            
+            const hasError = diagnosticLog.some(e => e.type === 'error');
+            diagnosticBox.className = 'diagnostic ' + (hasError ? 'diagnostic-error' : 'diagnostic-warning');
+        }
+
+        // 🔍 Проверка режима
         function detectVKMode() {
-            // Проверяем по User Agent или по наличию vkBridge в окне
-            const isVK = window.location.href.includes('vk.com') || 
-                         window.location.href.includes('vk-apps.com') ||
-                         (window.vkBridge && window.vkBridge.supports);
-            
-            if (isVK) {
-                modeIndicator.textContent = 'Режим: ВК ☁️';
-                modeIndicator.style.background = 'rgba(0, 119, 255, 0.9)';
-            } else {
-                modeIndicator.textContent = 'Режим: Браузер 💻';
-                modeIndicator.style.background = 'rgba(100, 100, 100, 0.9)';
-            }
-            
+            log('Проверка режима запуска...', 'info');
+            const href = window.location.href;
+            const isVK = href.includes('vk.com') || href.includes('vk-apps.com');
+            isVKMode = isVK;
+            log(`Режим: ${isVK ? 'ВКонтакте ☁️' : 'Браузер (GitHub Pages) 💻'}`, isVK ? 'success' : 'info');
+            log(`URL: ${href.substring(0, 50)}...`, 'info');
             return isVK;
         }
 
         // 📄 Парсинг CSV
         function parseCSV(csvText) {
+            log(`Парсинг CSV (${csvText.length} байт)...`, 'info');
             const result = {};
             const lines = csvText.split(/\r?\n/);
+            log(`Всего строк: ${lines.length}`, 'info');
             
-            if (lines.length < 2) return result;
+            if (lines.length < 2) {
+                throw new Error('Слишком мало строк в CSV');
+            }
             
             const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            log(`Заголовки: ${headers.join(', ')}`, 'info');
+            
             const dayIdx = headers.indexOf('День');
             const taskIdx = headers.indexOf('Задание');
             
             if (dayIdx === -1 || taskIdx === -1) {
-                throw new Error('Не найдены колонки "День" или "Задание"');
+                throw new Error(`Не найдены колонки. День=${dayIdx}, Задание=${taskIdx}`);
             }
+            log(`Индексы колонок: День=${dayIdx}, Задание=${taskIdx}`, 'success');
             
             let currentLine = '';
             let inQuotes = false;
@@ -254,7 +245,6 @@
                 currentLine += (currentLine ? '\n' : '') + lines[i];
                 const quotes = (currentLine.match(/"/g) || []).length;
                 inQuotes = quotes % 2 !== 0;
-                
                 if (!inQuotes) {
                     processedLines.push(currentLine);
                     currentLine = '';
@@ -262,93 +252,106 @@
             }
             if (currentLine) processedLines.push(currentLine);
             
+            log(`Обработано строк с данными: ${processedLines.length}`, 'info');
+            
             for (const line of processedLines) {
                 if (!line.trim()) continue;
-                
                 const commaIndex = line.indexOf(',');
                 if (commaIndex === -1) continue;
-                
                 const day = parseInt(line.substring(0, commaIndex).trim());
                 let task = line.substring(commaIndex + 1).trim();
-                
                 if (task.startsWith('"') && task.endsWith('"')) {
                     task = task.slice(1, -1).replace(/""/g, '"');
                 }
-                
                 if (day >= 1 && day <= 31 && task) {
                     result[day] = task;
+                    log(`✓ День ${day} загружен`, 'success');
                 }
             }
             
+            log(`Итого загружено дней: ${Object.keys(result).length}`, 'success');
             return result;
         }
 
         function formatTaskText(text) {
             if (!text) return '✨ Нет задания';
-            let formatted = text
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-            formatted = formatted.replace(/(#\w+)/g, '<span class="task-tag">$1</span>');
-            formatted = formatted.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank">$1</a>');
+            let formatted = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            formatted = formatted.replace(/(#\w+)/g, '<span style="color:#0077FF;font-weight:500">$1</span>');
             return formatted;
         }
 
-        // 💾 Сохранение (только localStorage если не ВК)
+        // 💾 Сохранение (ТОЛЬКО localStorage вне ВК)
         function saveProgress() {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(completedDays));
-            console.log('✅ Сохранено в localStorage');
-            
-            if (isVKMode && vkBridgeReady) {
-                vkBridge.send('VKWebAppStorageSet', {
-                    key: STORAGE_KEY,
-                    value: JSON.stringify(completedDays)
-                }).then(() => {
-                    console.log('✅ Дублировано в облако ВК');
-                }).catch(err => {
-                    console.warn('⚠️ Не удалось сохранить в ВК:', err);
-                });
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(completedDays));
+                log('Прогресс сохранён в localStorage', 'success');
+            } catch (e) {
+                log(`Ошибка сохранения: ${e.message}`, 'error');
             }
         }
 
-        // 📥 Загрузка (только localStorage если не ВК)
         function loadProgress() {
-            // Всегда пробуем localStorage сначала
-            const local = localStorage.getItem(STORAGE_KEY);
-            if (local) {
-                console.log('✅ Загружено из localStorage');
-                return JSON.parse(local);
+            try {
+                const local = localStorage.getItem(STORAGE_KEY);
+                if (local) {
+                    const data = JSON.parse(local);
+                    log(`Загружено ${data.length} выполненных дней из localStorage`, 'success');
+                    return data;
+                }
+                log('Нет сохранённых данных', 'info');
+                return [];
+            } catch (e) {
+                log(`Ошибка загрузки прогресса: ${e.message}`, 'error');
+                return [];
             }
-            
-            return [];
         }
 
-        // 🔄 Загрузка заданий из Google Таблицы
+        // 🔄 Загрузка из Google Таблицы
         async function loadTasks(year, monthIndex) {
             const sheetKey = `${MONTHS_RU[monthIndex]} ${year}`;
             const gid = SHEETS_GID[sheetKey];
             
+            log(`📋 Ищем лист: "${sheetKey}"`, 'info');
+            
             if (!gid) {
-                throw new Error(`Лист "${sheetKey}" не найден`);
+                throw new Error(`❌ Лист "${sheetKey}" не найден в настройках SHEETS_GID`);
             }
+            log(`✓ GID найден: ${gid}`, 'success');
             
             const url = `${BASE_CSV_URL}${gid}`;
-            console.log('🌐 Загрузка:', url);
+            log(`🌐 Запрос URL: ${url}`, 'info');
             
-            const response = await fetch(url);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ошибка: ${response.status}`);
+            // Проверка доступности URL
+            try {
+                const response = await fetch(url, { 
+                    method: 'GET',
+                    mode: 'cors',
+                    cache: 'no-cache'
+                });
+                
+                log(`📡 Статус ответа: ${response.status} ${response.ok ? '✓' : '✗'}`, response.ok ? 'success' : 'error');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const csvText = await response.text();
+                log(`📄 Получено байт: ${csvText.length}`, 'success');
+                
+                // Показываем первые 200 символов для проверки
+                log(`📝 Начало данных: "${csvText.substring(0, 200)}..."`, 'info');
+                
+                return parseCSV(csvText);
+            } catch (e) {
+                log(`❌ Ошибка fetch: ${e.message}`, 'error');
+                log(`Возможные причины: 1) Таблица не опубликована 2) Неверный GID 3) CORS`, 'error');
+                throw e;
             }
-            
-            const csvText = await response.text();
-            console.log('📄 Получено байт:', csvText.length);
-            
-            return parseCSV(csvText);
         }
 
         // 📅 Отрисовка календаря
         function renderCalendar(year, monthIndex) {
+            log('Отрисовка календаря...', 'info');
             calendarEl.innerHTML = '';
             monthTitleEl.textContent = `${MONTHS_RU[monthIndex]} ${year}`;
             
@@ -379,11 +382,9 @@
                 calendarEl.appendChild(dayDiv);
             }
             
-            debugBox.innerHTML = `Загружено: <strong>${Object.keys(tasksData).length}</strong> | Выполнено: <strong>${completedDays.length}</strong> | Дни: ${Object.keys(tasksData).join(', ') || 'нет'}`;
-            debugBox.style.display = 'block';
+            log(`✓ Календарь отрисован (${daysInMonth} дней)`, 'success');
         }
 
-        // 👁 Показать задание
         function showTask(day, year, monthIndex, clickedEl) {
             document.querySelectorAll('.day').forEach(d => d.classList.remove('active'));
             clickedEl.classList.add('active');
@@ -419,19 +420,15 @@
             }
             
             taskBox.style.display = 'block';
-            taskBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
-        // ✅ Отметить день
         function markDayComplete(day) {
             if (!completedDays.includes(day)) {
                 completedDays.push(day);
                 saveProgress();
                 
-                const taskStatus = document.getElementById('task-status');
-                taskStatus.textContent = '✓ Выполнено';
-                taskStatus.className = 'status-done';
-                
+                document.getElementById('task-status').textContent = '✓ Выполнено';
+                document.getElementById('task-status').className = 'status-done';
                 completeBtn.textContent = '✓ Уже выполнено';
                 completeBtn.classList.add('completed');
                 completeBtn.disabled = true;
@@ -439,58 +436,47 @@
                 document.querySelectorAll('.day').forEach(d => {
                     if (d.textContent == day) d.classList.add('completed');
                 });
-                
-                console.log(`✅ День ${day} отмечен`);
             }
         }
 
-        // 🔘 Навигация
         function updateNavButtons(year, monthIndex) {
             const prevBtn = document.getElementById('prevBtn');
             const nextBtn = document.getElementById('nextBtn');
-            
             const prevMonth = monthIndex === 0 ? 11 : monthIndex - 1;
             const prevYear = monthIndex === 0 ? year - 1 : year;
             const nextMonth = monthIndex === 11 ? 0 : monthIndex + 1;
             const nextYear = monthIndex === 11 ? year + 1 : year;
-            
             prevBtn.disabled = !SHEETS_GID[`${MONTHS_RU[prevMonth]} ${prevYear}`];
             nextBtn.disabled = !SHEETS_GID[`${MONTHS_RU[nextMonth]} ${nextYear}`];
         }
 
-        // 🔄 Обновление месяца
         async function updateMonth(year, monthIndex) {
-            if (isLoading) return;
-            isLoading = true;
-            
-            errorBox.style.display = 'none';
-            calendarEl.innerHTML = '<div class="loading">⏳ Загрузка заданий...</div>';
+            calendarEl.innerHTML = '<div class="loading">⏳ Загрузка...</div>';
             taskBox.style.display = 'none';
             
             try {
                 tasksData = await loadTasks(year, monthIndex);
                 
                 if (Object.keys(tasksData).length === 0) {
-                    showError('Задания не найдены. Проверьте GID и заголовки таблицы.');
+                    log('⚠️ Задания не найдены в таблице', 'error');
                 } else {
                     renderCalendar(year, monthIndex);
                     updateNavButtons(year, monthIndex);
+                    diagnosticBox.className = 'diagnostic diagnostic-success';
                 }
             } catch (error) {
-                console.error('❌ Ошибка:', error);
-                showError(`Ошибка:<br><strong>${error.message}</strong><br><br>Откройте консоль (F12) для деталей`);
+                log(`❌ КРИТИЧЕСКАЯ ОШИБКА: ${error.message}`, 'error');
+                calendarEl.innerHTML = `<div class="diagnostic diagnostic-error">
+                    <strong>Ошибка загрузки:</strong><br>
+                    ${error.message}<br><br>
+                    <strong>Что проверить:</strong><br>
+                    1. Опубликована ли таблица (Файл → Поделиться → Опубликовать)<br>
+                    2. Правильный ли GID в настройках<br>
+                    3. Заголовки колонок точно "День" и "Задание"
+                </div>`;
             }
-            
-            isLoading = false;
         }
 
-        function showError(message) {
-            errorBox.innerHTML = `<div class="error">${message}</div>`;
-            errorBox.style.display = 'block';
-            calendarEl.innerHTML = '';
-        }
-
-        // 🎯 Навигация
         document.getElementById('prevBtn').onclick = () => {
             let month = currentDate.getMonth(), year = currentDate.getFullYear();
             month--; if (month < 0) { month = 11; year--; }
@@ -505,37 +491,35 @@
             updateMonth(year, month);
         };
 
-        // 🚀 Инициализация (БЕЗ ОШИБОК)
+        // 🚀 ЗАПУСК С ДИАГНОСТИКОЙ
         async function initApp() {
-            console.log('🚀 Запуск приложения...');
+            log('=== ЗАПУСК ПРИЛОЖЕНИЯ ===', 'info');
+            log(`Время: ${new Date().toLocaleString()}`, 'info');
+            log(`User Agent: ${navigator.userAgent.substring(0, 50)}...`, 'info');
             
-            // 1. Определяем режим работы
-            isVKMode = detectVKMode();
-            console.log('isVKMode:', isVKMode);
+            // 1. Определяем режим
+            detectVKMode();
             
-            // 2. Инициализируем VK Bridge ТОЛЬКО если в ВК
-            if (isVKMode) {
-                try {
-                    await vkBridge.send('VKWebAppInit');
-                    vkBridgeReady = true;
-                    console.log('✅ VK Bridge готов');
-                } catch (error) {
-                    console.warn('⚠️ VK Bridge не инициализирован:', error);
-                    vkBridgeReady = false;
-                }
+            // 2. VK Bridge ТОЛЬКО если в ВК (без await чтобы не блокировать)
+            if (isVKMode && window.vkBridge) {
+                log('Инициализация VK Bridge...', 'info');
+                vkBridge.send('VKWebAppInit')
+                    .then(() => log('✓ VK Bridge инициализирован', 'success'))
+                    .catch(e => log(`⚠️ VK Bridge ошибка: ${e.message}`, 'warning'));
             } else {
-                console.log('💻 Работаем в браузере (без VK Bridge)');
+                log('VK Bridge не используется (не ВКонтакте)', 'info');
             }
             
             // 3. Загружаем прогресс
             completedDays = loadProgress();
-            console.log('✅ Загружено выполненных дней:', completedDays.length);
             
-            // 4. Запускаем календарь
-            updateMonth(currentDate.getFullYear(), currentDate.getMonth());
+            // 4. Загружаем календарь
+            await updateMonth(currentDate.getFullYear(), currentDate.getMonth());
+            
+            log('=== ЗАПУСК ЗАВЕРШЁН ===', 'success');
         }
 
-        // Ждём загрузки страницы
+        // Старт
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initApp);
         } else {
