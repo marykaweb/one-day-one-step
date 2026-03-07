@@ -142,7 +142,7 @@
             font-size: 11px;
             margin-top: 10px;
             font-family: monospace;
-            display: none;
+            display: block;
         }
         .mode-indicator {
             position: fixed;
@@ -159,7 +159,7 @@
 </head>
 <body>
 
-    <div class="mode-indicator" id="modeIndicator">Загрузка...</div>
+    <div class="mode-indicator" id="modeIndicator">Проверка...</div>
 
     <div class="header">
         <button class="nav-btn" id="prevBtn">◀</button>
@@ -202,6 +202,7 @@
         let currentDate = new Date();
         let isLoading = false;
         let isVKMode = false;
+        let vkBridgeReady = false;
 
         const calendarEl = document.getElementById('calendar');
         const monthTitleEl = document.getElementById('monthTitle');
@@ -211,6 +212,24 @@
         const errorBox = document.getElementById('error-box');
         const debugBox = document.getElementById('debug-box');
         const modeIndicator = document.getElementById('modeIndicator');
+
+        // 🔍 Определяем, запущены ли внутри ВК
+        function detectVKMode() {
+            // Проверяем по User Agent или по наличию vkBridge в окне
+            const isVK = window.location.href.includes('vk.com') || 
+                         window.location.href.includes('vk-apps.com') ||
+                         (window.vkBridge && window.vkBridge.supports);
+            
+            if (isVK) {
+                modeIndicator.textContent = 'Режим: ВК ☁️';
+                modeIndicator.style.background = 'rgba(0, 119, 255, 0.9)';
+            } else {
+                modeIndicator.textContent = 'Режим: Браузер 💻';
+                modeIndicator.style.background = 'rgba(100, 100, 100, 0.9)';
+            }
+            
+            return isVK;
+        }
 
         // 📄 Парсинг CSV
         function parseCSV(csvText) {
@@ -275,45 +294,26 @@
             return formatted;
         }
 
-        // 💾 УНИВЕРСАЛЬНОЕ сохранение (ВК или браузер)
-        async function saveProgress() {
-            if (isVKMode) {
-                try {
-                    await vkBridge.send('VKWebAppStorageSet', {
-                        key: STORAGE_KEY,
-                        value: JSON.stringify(completedDays)
-                    });
-                    console.log('✅ Сохранено в облако ВК');
-                } catch (error) {
-                    console.error('❌ Ошибка ВК сохранения:', error);
-                    // Фоллбэк на localStorage
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(completedDays));
-                }
-            } else {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(completedDays));
-                console.log('✅ Сохранено в localStorage');
+        // 💾 Сохранение (только localStorage если не ВК)
+        function saveProgress() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(completedDays));
+            console.log('✅ Сохранено в localStorage');
+            
+            if (isVKMode && vkBridgeReady) {
+                vkBridge.send('VKWebAppStorageSet', {
+                    key: STORAGE_KEY,
+                    value: JSON.stringify(completedDays)
+                }).then(() => {
+                    console.log('✅ Дублировано в облако ВК');
+                }).catch(err => {
+                    console.warn('⚠️ Не удалось сохранить в ВК:', err);
+                });
             }
         }
 
-        // 📥 УНИВЕРСАЛЬНАЯ загрузка (ВК или браузер)
-        async function loadProgress() {
-            if (isVKMode) {
-                try {
-                    const result = await vkBridge.send('VKWebAppStorageGet', {
-                        key: STORAGE_KEY
-                    });
-                    
-                    if (result && result.key && result.value) {
-                        const data = JSON.parse(result.value);
-                        console.log('✅ Загружено из облака ВК');
-                        return Array.isArray(data) ? data : [];
-                    }
-                } catch (error) {
-                    console.error('❌ Ошибка ВК загрузки:', error);
-                }
-            }
-            
-            // Фоллбэк на localStorage
+        // 📥 Загрузка (только localStorage если не ВК)
+        function loadProgress() {
+            // Всегда пробуем localStorage сначала
             const local = localStorage.getItem(STORAGE_KEY);
             if (local) {
                 console.log('✅ Загружено из localStorage');
@@ -323,7 +323,7 @@
             return [];
         }
 
-        // 🔄 Загрузка заданий
+        // 🔄 Загрузка заданий из Google Таблицы
         async function loadTasks(year, monthIndex) {
             const sheetKey = `${MONTHS_RU[monthIndex]} ${year}`;
             const gid = SHEETS_GID[sheetKey];
@@ -333,6 +333,8 @@
             }
             
             const url = `${BASE_CSV_URL}${gid}`;
+            console.log('🌐 Загрузка:', url);
+            
             const response = await fetch(url);
             
             if (!response.ok) {
@@ -340,6 +342,8 @@
             }
             
             const csvText = await response.text();
+            console.log('📄 Получено байт:', csvText.length);
+            
             return parseCSV(csvText);
         }
 
@@ -375,7 +379,7 @@
                 calendarEl.appendChild(dayDiv);
             }
             
-            debugBox.innerHTML = `Загружено: <strong>${Object.keys(tasksData).length}</strong> | Выполнено: <strong>${completedDays.length}</strong> | Режим: <strong>${isVKMode ? 'ВК ☁️' : 'Браузер 💻'}</strong>`;
+            debugBox.innerHTML = `Загружено: <strong>${Object.keys(tasksData).length}</strong> | Выполнено: <strong>${completedDays.length}</strong> | Дни: ${Object.keys(tasksData).join(', ') || 'нет'}`;
             debugBox.style.display = 'block';
         }
 
@@ -419,10 +423,10 @@
         }
 
         // ✅ Отметить день
-        async function markDayComplete(day) {
+        function markDayComplete(day) {
             if (!completedDays.includes(day)) {
                 completedDays.push(day);
-                await saveProgress();
+                saveProgress();
                 
                 const taskStatus = document.getElementById('task-status');
                 taskStatus.textContent = '✓ Выполнено';
@@ -435,6 +439,8 @@
                 document.querySelectorAll('.day').forEach(d => {
                     if (d.textContent == day) d.classList.add('completed');
                 });
+                
+                console.log(`✅ День ${day} отмечен`);
             }
         }
 
@@ -472,7 +478,7 @@
                 }
             } catch (error) {
                 console.error('❌ Ошибка:', error);
-                showError(`Ошибка:<br><strong>${error.message}</strong>`);
+                showError(`Ошибка:<br><strong>${error.message}</strong><br><br>Откройте консоль (F12) для деталей`);
             }
             
             isLoading = false;
@@ -501,23 +507,31 @@
 
         // 🚀 Инициализация (БЕЗ ОШИБОК)
         async function initApp() {
-            // Пробуем инициализировать VK Bridge
-            try {
-                await vkBridge.send('VKWebAppInit');
-                isVKMode = true;
-                modeIndicator.textContent = 'Режим: ВК ☁️';
-                console.log('✅ VK Bridge инициализирован');
-            } catch (error) {
-                isVKMode = false;
-                modeIndicator.textContent = 'Режим: Браузер 💻';
-                console.log('⚠️ VK Bridge недоступен (работаем в браузере)');
+            console.log('🚀 Запуск приложения...');
+            
+            // 1. Определяем режим работы
+            isVKMode = detectVKMode();
+            console.log('isVKMode:', isVKMode);
+            
+            // 2. Инициализируем VK Bridge ТОЛЬКО если в ВК
+            if (isVKMode) {
+                try {
+                    await vkBridge.send('VKWebAppInit');
+                    vkBridgeReady = true;
+                    console.log('✅ VK Bridge готов');
+                } catch (error) {
+                    console.warn('⚠️ VK Bridge не инициализирован:', error);
+                    vkBridgeReady = false;
+                }
+            } else {
+                console.log('💻 Работаем в браузере (без VK Bridge)');
             }
             
-            // Загружаем прогресс (универсально)
-            completedDays = await loadProgress();
+            // 3. Загружаем прогресс
+            completedDays = loadProgress();
             console.log('✅ Загружено выполненных дней:', completedDays.length);
             
-            // Запускаем календарь
+            // 4. Запускаем календарь
             updateMonth(currentDate.getFullYear(), currentDate.getMonth());
         }
 
