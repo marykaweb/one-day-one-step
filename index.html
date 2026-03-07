@@ -6,23 +6,23 @@
     <title>Календарь Заданий</title>
     <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
     <style>
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-            padding: 15px; 
+            padding: 12px; 
             background: #fff; 
-            margin: 0;
             color: #000;
+            line-height: 1.4;
         }
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px 0;
-            margin-bottom: 15px;
+            padding: 10px 0 15px;
             border-bottom: 1px solid #e1e3e6;
+            margin-bottom: 10px;
         }
-        .header h2 { margin: 0; font-size: 18px; }
+        .header h2 { font-size: 18px; font-weight: 600; }
         .nav-btn {
             background: #0077FF;
             color: white;
@@ -31,31 +31,32 @@
             padding: 8px 16px;
             cursor: pointer;
             font-size: 14px;
+            font-weight: 500;
         }
         .nav-btn:disabled { background: #ccc; cursor: not-allowed; }
-        .calendar { 
-            display: grid; 
-            grid-template-columns: repeat(7, 1fr); 
-            gap: 4px; 
-        }
+        .nav-btn:active { opacity: 0.9; }
+        
+        .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
         .weekday {
             text-align: center;
             font-size: 11px;
             color: #888;
-            padding: 5px;
+            padding: 6px 2px;
             font-weight: 500;
+            text-transform: uppercase;
         }
         .day { 
-            padding: 12px 5px; 
+            padding: 10px 4px; 
             background: #f0f2f5; 
             border-radius: 8px; 
             text-align: center; 
             cursor: pointer; 
             font-size: 14px;
-            min-height: 45px;
+            min-height: 42px;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: background 0.1s;
         }
         .day:hover { background: #e1e3e6; }
         .day.active { background: #0077FF; color: white; }
@@ -63,58 +64,100 @@
         .day.has-task::after {
             content: '';
             position: absolute;
-            bottom: 4px;
+            bottom: 5px;
             width: 6px;
             height: 6px;
             background: #4BB34B;
             border-radius: 50%;
         }
         .day.empty { background: transparent; cursor: default; }
-        .day.today { border: 2px solid #0077FF; font-weight: bold; }
+        .day.today { border: 2px solid #0077FF; font-weight: 600; }
+        
         #task-box { 
             background: #f5f7fa; 
-            padding: 15px; 
+            padding: 16px; 
             border-radius: 12px; 
-            margin-top: 20px;
+            margin-top: 16px;
             display: none;
         }
-        #task-box h3 { margin: 0 0 10px 0; font-size: 16px; }
-        #task-text { margin: 0 0 10px 0; line-height: 1.4; }
-        .status { font-size: 13px; margin: 0; }
-        .status-ok { color: #4BB34B; }
-        .status-wait { color: #FF9500; }
-        .loading { text-align: center; color: #888; padding: 20px; }
+        #task-box h3 { 
+            margin: 0 0 12px 0; 
+            font-size: 16px; 
+            font-weight: 600;
+            color: #000;
+        }
+        #task-text { 
+            margin: 0 0 12px 0; 
+            line-height: 1.6; 
+            font-size: 14px;
+            white-space: pre-wrap; /* Сохраняем переносы строк */
+            word-wrap: break-word;
+        }
+        #task-text a { color: #0077FF; text-decoration: none; }
+        #task-text a:hover { text-decoration: underline; }
+        .task-tag { 
+            color: #0077FF; 
+            font-weight: 500;
+        }
+        .status { 
+            font-size: 13px; 
+            margin: 0; 
+            padding-top: 10px;
+            border-top: 1px solid #e1e3e6;
+        }
+        .status-ok { color: #4BB34B; font-weight: 500; }
+        .status-wait { color: #FF9500; font-weight: 500; }
+        .loading { 
+            text-align: center; 
+            color: #888; 
+            padding: 30px 10px; 
+            font-size: 14px;
+        }
+        .error {
+            text-align: center;
+            color: #FF3B30;
+            padding: 20px;
+            background: #fff2f2;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
 
+    <!-- Шапка с навигацией -->
     <div class="header">
         <button class="nav-btn" id="prevBtn">◀</button>
         <h2 id="monthTitle">Загрузка...</h2>
         <button class="nav-btn" id="nextBtn">▶</button>
     </div>
 
+    <!-- Дни недели -->
     <div class="calendar" id="weekdays">
         <div class="weekday">Пн</div><div class="weekday">Вт</div><div class="weekday">Ср</div>
         <div class="weekday">Чт</div><div class="weekday">Пт</div><div class="weekday">Сб</div><div class="weekday">Вс</div>
     </div>
+
+    <!-- Дни месяца -->
     <div class="calendar" id="calendar"></div>
 
+    <!-- Блок с заданием -->
     <div id="task-box">
         <h3>📌 <span id="date-title"></span></h3>
-        <p id="task-text"></p>
+        <div id="task-text"></div>
         <p class="status">Статус: <span id="task-status"></span></p>
     </div>
 
     <script>
+        // Инициализация VK Bridge
         vkBridge.send('VKWebAppInit');
 
-        // 🔧 === НАСТРОЙКИ — редактируйте только здесь ===
+        // 🔧 === НАСТРОЙКИ — редактируйте только этот блок ===
         const BASE_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQeJ5SzWpqpRRRUR4R4iX_YNhhnmp_6RFpoYuRSXYSYJ7igpnMeqxNogOo3H-dnwMX_La9U5sTMaLsN/pub?output=csv&gid=';
         
-        // 📋 СПИСОК ЛИСТОВ: "Название как в таблице" → "gid из адресной строки"
+        // 📋 СПИСОК ЛИСТОВ: "Точное название вкладки" → "gid из адресной строки"
         const SHEETS_GID = {
-            'Март 2026': '0',
+            'Март 2026': '0',  // ← ВСТАВЬТЕ СЮДА GID листа "Март 2026"
             // Примеры для будущих месяцев (раскомментируйте и заполните):
             // 'Апрель 2026': '1234567890',
             // 'Май 2026': '0987654321',
@@ -123,53 +166,133 @@
         const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
         // === КОНЕЦ НАСТРОЕК ===
 
+        // Состояние приложения
         let tasksData = {};
         let currentDate = new Date();
         let isLoading = false;
 
+        // DOM элементы
         const calendarEl = document.getElementById('calendar');
         const monthTitleEl = document.getElementById('monthTitle');
         const taskBox = document.getElementById('task-box');
+        const taskTextEl = document.getElementById('task-text');
 
-        // 📄 Парсинг CSV с русскими заголовками "День" и "Задание"
+        // 📄 Парсинг CSV с поддержкой переносов строк в ячейках (кавычки)
         function parseCSV(csvText) {
-            const lines = csvText.trim().split('\n').filter(l => l.trim());
-            if (lines.length < 2) return {};
-            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-            const dayIdx = headers.indexOf('День');
-            const taskIdx = headers.indexOf('Задание');
-            if (dayIdx === -1 || taskIdx === -1) {
-                console.error('❌ Не найдены колонки "День" или "Задание". Заголовки:', headers);
-                return {};
-            }
             const result = {};
-            for (let i = 1; i < lines.length; i++) {
-                const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-                if (values.length > Math.max(dayIdx, taskIdx)) {
-                    const day = parseInt(values[dayIdx]);
-                    const task = values[taskIdx];
-                    if (day && task && day >= 1 && day <= 31) result[day] = task;
+            let currentRow = [];
+            let currentField = '';
+            let inQuotes = false;
+            let headers = null;
+            let dayIdx = -1;
+            let taskIdx = -1;
+            
+            for (let i = 0; i < csvText.length; i++) {
+                const char = csvText[i];
+                const nextChar = csvText[i + 1];
+                
+                // Обработка кавычек
+                if (char === '"') {
+                    if (inQuotes && nextChar === '"') {
+                        // Экранированная кавычка ""
+                        currentField += '"';
+                        i++;
+                    } else {
+                        // Начало или конец поля в кавычках
+                        inQuotes = !inQuotes;
+                    }
+                    continue;
                 }
+                
+                // Если внутри кавычек — добавляем всё, включая переносы
+                if (inQuotes) {
+                    currentField += char;
+                    continue;
+                }
+                
+                // Конец поля (запятая)
+                if (char === ',') {
+                    currentRow.push(currentField.trim());
+                    currentField = '';
+                    continue;
+                }
+                
+                // Конец строки
+                if (char === '\n' || char === '\r') {
+                    if (currentField || currentRow.length > 0) {
+                        currentRow.push(currentField.trim());
+                    }
+                    if (currentRow.length > 0) {
+                        if (!headers) {
+                            // Первая строка — заголовки
+                            headers = currentRow.map(h => h.replace(/^"|"$/g, ''));
+                            dayIdx = headers.indexOf('День');
+                            taskIdx = headers.indexOf('Задание');
+                        } else {
+                            // Строка с данными
+                            if (currentRow.length > Math.max(dayIdx, taskIdx) && dayIdx >= 0 && taskIdx >= 0) {
+                                const day = parseInt(currentRow[dayIdx]);
+                                const task = currentRow[taskIdx];
+                                if (day && task && day >= 1 && day <= 31) {
+                                    result[day] = task;
+                                }
+                            }
+                        }
+                        currentRow = [];
+                        currentField = '';
+                    }
+                    if (char === '\r' && nextChar === '\n') i++;
+                    continue;
+                }
+                
+                currentField += char;
             }
             return result;
+        }
+
+        // ✨ Форматирование текста задания: переносы, ссылки, теги
+        function formatTaskText(text) {
+            if (!text) return '✨ Нет задания';
+            
+            // Экранируем HTML для безопасности
+            let formatted = text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            
+            // Переносы строк сохраняются через CSS white-space: pre-wrap
+            
+            // Превращаем #теги в цветные
+            formatted = formatted.replace(/(#\w+)/g, '<span class="task-tag">$1</span>');
+            
+            // Превращаем ссылки в кликабельные
+            formatted = formatted.replace(
+                /(https?:\/\/[^\s<]+)/g, 
+                '<a href="$1" target="_blank">$1</a>'
+            );
+            
+            return formatted;
         }
 
         // 🔄 Загрузка заданий для месяца
         async function loadTasks(year, monthIndex) {
             const sheetKey = `${MONTHS_RU[monthIndex]} ${year}`;
             const gid = SHEETS_GID[sheetKey];
+            
             if (!gid) {
                 console.warn(`⚠️ Лист "${sheetKey}" не найден в SHEETS_GID`);
                 return {};
             }
+            
             const url = `${BASE_CSV_URL}${gid}`;
+            
             try {
                 const response = await fetch(url);
-                if (!response.ok) throw new Error('Network error');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const csvText = await response.text();
                 return parseCSV(csvText);
             } catch (error) {
-                console.error('Ошибка загрузки:', error);
+                console.error('❌ Ошибка загрузки:', error);
                 return {};
             }
         }
@@ -181,65 +304,96 @@
             
             const firstDay = new Date(year, monthIndex, 1);
             const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+            
+            // Корректировка: 0 = Вс → 6, чтобы Пн = 0
             let startDay = firstDay.getDay() - 1;
             if (startDay < 0) startDay = 6;
             
+            // Пустые ячейки до первого дня
             for (let i = 0; i < startDay; i++) {
                 const empty = document.createElement('div');
                 empty.className = 'day empty';
                 calendarEl.appendChild(empty);
             }
             
+            // Дни месяца
             const today = new Date();
             for (let day = 1; day <= daysInMonth; day++) {
                 const dayDiv = document.createElement('div');
                 dayDiv.className = 'day';
                 dayDiv.textContent = day;
-                if (tasksData[day]) dayDiv.classList.add('has-task');
-                if (year === today.getFullYear() && monthIndex === today.getMonth() && day === today.getDate()) {
+                
+                // Подсветка если есть задание
+                if (tasksData[day]) {
+                    dayDiv.classList.add('has-task');
+                }
+                
+                // Подсветка сегодняшнего дня
+                if (year === today.getFullYear() && 
+                    monthIndex === today.getMonth() && 
+                    day === today.getDate()) {
                     dayDiv.classList.add('today');
                 }
+                
+                // Обработчик клика
                 dayDiv.onclick = () => showTask(day, year, monthIndex, dayDiv);
+                
                 calendarEl.appendChild(dayDiv);
             }
         }
 
-        // 👁 Показать задание
+        // 👁 Показать задание при клике
         function showTask(day, year, monthIndex, clickedEl) {
+            // Снимаем выделение со всех дней
             document.querySelectorAll('.day').forEach(d => d.classList.remove('active'));
             clickedEl.classList.add('active');
             
+            // Заголовок даты
             document.getElementById('date-title').textContent = `${day} ${MONTHS_RU[monthIndex]} ${year}`;
-            const task = tasksData[day];
-            const taskText = document.getElementById('task-text');
-            const taskStatus = document.getElementById('task-status');
             
+            // Текст задания с форматированием
+            const task = tasksData[day];
+            taskTextEl.innerHTML = formatTaskText(task);
+            
+            // Статус
+            const taskStatus = document.getElementById('task-status');
             if (task) {
-                taskText.textContent = task;
                 taskStatus.textContent = 'Ожидает выполнения';
                 taskStatus.className = 'status-wait';
             } else {
-                taskText.textContent = '✨ На этот день заданий нет';
-                taskStatus.textContent = 'Свободный день';
+                taskStatus.textContent = 'Свободный день ✨';
                 taskStatus.className = 'status-ok';
             }
+            
+            // Показываем блок
             taskBox.style.display = 'block';
+            
+            // Плавный скролл к заданию (для мобильных)
+            taskBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
         // 🔄 Обновление месяца
         async function updateMonth(year, monthIndex) {
             if (isLoading) return;
             isLoading = true;
-            calendarEl.innerHTML = '<div class="loading">Загрузка...</div>';
+            
+            // Показываем загрузку
+            calendarEl.innerHTML = '<div class="loading">⏳ Загрузка заданий...</div>';
             taskBox.style.display = 'none';
             
+            // Загружаем данные
             tasksData = await loadTasks(year, monthIndex);
+            
+            // Рисуем календарь
             renderCalendar(year, monthIndex);
+            
+            // Обновляем кнопки навигации
             updateNavButtons(year, monthIndex);
+            
             isLoading = false;
         }
 
-        // 🔘 Обновление состояния кнопок
+        // 🔘 Обновление состояния кнопок навигации
         function updateNavButtons(year, monthIndex) {
             const prevBtn = document.getElementById('prevBtn');
             const nextBtn = document.getElementById('nextBtn');
@@ -253,21 +407,26 @@
             nextBtn.disabled = !SHEETS_GID[`${MONTHS_RU[nextMonth]} ${nextYear}`];
         }
 
-        // 🎯 Обработчики кнопок
+        // 🎯 Обработчики кнопок навигации
         document.getElementById('prevBtn').onclick = () => {
-            let month = currentDate.getMonth(), year = currentDate.getFullYear();
-            month--; if (month < 0) { month = 11; year--; }
+            let month = currentDate.getMonth();
+            let year = currentDate.getFullYear();
+            month--;
+            if (month < 0) { month = 11; year--; }
             currentDate = new Date(year, month, 1);
             updateMonth(year, month);
         };
+        
         document.getElementById('nextBtn').onclick = () => {
-            let month = currentDate.getMonth(), year = currentDate.getFullYear();
-            month++; if (month > 11) { month = 0; year++; }
+            let month = currentDate.getMonth();
+            let year = currentDate.getFullYear();
+            month++;
+            if (month > 11) { month = 0; year++; }
             currentDate = new Date(year, month, 1);
             updateMonth(year, month);
         };
 
-        // 🚀 Старт
+        // 🚀 Запуск приложения
         updateMonth(currentDate.getFullYear(), currentDate.getMonth());
     </script>
 </body>
