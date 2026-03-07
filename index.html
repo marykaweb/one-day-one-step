@@ -144,31 +144,38 @@
             font-family: monospace;
             display: none;
         }
+        .mode-indicator {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            z-index: 1000;
+        }
     </style>
 </head>
 <body>
 
-    <!-- Шапка с навигацией -->
+    <div class="mode-indicator" id="modeIndicator">Загрузка...</div>
+
     <div class="header">
         <button class="nav-btn" id="prevBtn">◀</button>
         <h2 id="monthTitle">Загрузка...</h2>
         <button class="nav-btn" id="nextBtn">▶</button>
     </div>
 
-    <!-- Блоки ошибок и отладки -->
     <div id="error-box" style="display:none;"></div>
     <div id="debug-box" class="debug"></div>
 
-    <!-- Дни недели -->
     <div class="calendar" id="weekdays">
         <div class="weekday">Пн</div><div class="weekday">Вт</div><div class="weekday">Ср</div>
         <div class="weekday">Чт</div><div class="weekday">Пт</div><div class="weekday">Сб</div><div class="weekday">Вс</div>
     </div>
-
-    <!-- Дни месяца -->
     <div class="calendar" id="calendar"></div>
 
-    <!-- Блок с заданием -->
     <div id="task-box">
         <h3>📌 <span id="date-title"></span></h3>
         <div id="task-text"></div>
@@ -179,26 +186,23 @@
     </div>
 
     <script>
-        // 🔧 === НАСТРОЙКИ — редактируйте только этот блок ===
+        // 🔧 === НАСТРОЙКИ ===
         const BASE_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQeJ5SzWpqpRRRUR4R4iX_YNhhnmp_6RFpoYuRSXYSYJ7igpnMeqxNogOo3H-dnwMX_La9U5sTMaLsN/pub?output=csv&gid=';
         
         const SHEETS_GID = {
-            'Март 2026': '1738085710',  // ← ВСТАВЬТЕ СЮДА GID листа "Март 2026"
-            // Примеры для будущих месяцев:
-            // 'Апрель 2026': '1234567890',
+            'Март 2026': '1738085710',  // ← ПРОВЕРЬТЕ GID!
         };
 
         const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-        const STORAGE_KEY = 'marathon_oneday_onestep_2026'; // Уникальный ключ для хранения прогресса
+        const STORAGE_KEY = 'marathon_oneday_onestep_2026';
         // === КОНЕЦ НАСТРОЕК ===
 
-        // Состояние приложения
         let tasksData = {};
         let completedDays = [];
         let currentDate = new Date();
         let isLoading = false;
+        let isVKMode = false;
 
-        // DOM элементы
         const calendarEl = document.getElementById('calendar');
         const monthTitleEl = document.getElementById('monthTitle');
         const taskBox = document.getElementById('task-box');
@@ -206,8 +210,9 @@
         const completeBtn = document.getElementById('completeBtn');
         const errorBox = document.getElementById('error-box');
         const debugBox = document.getElementById('debug-box');
+        const modeIndicator = document.getElementById('modeIndicator');
 
-        // 📄 Парсинг CSV с поддержкой многострочных ячеек
+        // 📄 Парсинг CSV
         function parseCSV(csvText) {
             const result = {};
             const lines = csvText.split(/\r?\n/);
@@ -222,7 +227,6 @@
                 throw new Error('Не найдены колонки "День" или "Задание"');
             }
             
-            // Собираем многострочные ячейки
             let currentLine = '';
             let inQuotes = false;
             const processedLines = [];
@@ -239,7 +243,6 @@
             }
             if (currentLine) processedLines.push(currentLine);
             
-            // Парсим данные
             for (const line of processedLines) {
                 if (!line.trim()) continue;
                 
@@ -261,7 +264,6 @@
             return result;
         }
 
-        // ✨ Форматирование текста задания
         function formatTaskText(text) {
             if (!text) return '✨ Нет задания';
             let formatted = text
@@ -273,45 +275,61 @@
             return formatted;
         }
 
-        // 💾 Сохранение прогресса в облако ВК
+        // 💾 УНИВЕРСАЛЬНОЕ сохранение (ВК или браузер)
         async function saveProgress() {
-            try {
-                await vkBridge.send('VKWebAppStorageSet', {
-                    key: STORAGE_KEY,
-                    value: JSON.stringify(completedDays)
-                });
-                console.log('✅ Прогресс сохранён в облако ВК');
-            } catch (error) {
-                console.error('❌ Ошибка сохранения:', error);
-            }
-        }
-
-        // 📥 Загрузка прогресса из облака ВК
-        async function loadProgress() {
-            try {
-                const result = await vkBridge.send('VKWebAppStorageGet', {
-                    key: STORAGE_KEY
-                });
-                
-                if (result && result.key && result.value) {
-                    const data = JSON.parse(result.value);
-                    console.log('✅ Прогресс загружен из облака ВК:', data);
-                    return Array.isArray(data) ? data : [];
+            if (isVKMode) {
+                try {
+                    await vkBridge.send('VKWebAppStorageSet', {
+                        key: STORAGE_KEY,
+                        value: JSON.stringify(completedDays)
+                    });
+                    console.log('✅ Сохранено в облако ВК');
+                } catch (error) {
+                    console.error('❌ Ошибка ВК сохранения:', error);
+                    // Фоллбэк на localStorage
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(completedDays));
                 }
-                return [];
-            } catch (error) {
-                console.error('❌ Ошибка загрузки прогресса:', error);
-                return [];
+            } else {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(completedDays));
+                console.log('✅ Сохранено в localStorage');
             }
         }
 
-        // 🔄 Загрузка заданий из Google Таблицы
+        // 📥 УНИВЕРСАЛЬНАЯ загрузка (ВК или браузер)
+        async function loadProgress() {
+            if (isVKMode) {
+                try {
+                    const result = await vkBridge.send('VKWebAppStorageGet', {
+                        key: STORAGE_KEY
+                    });
+                    
+                    if (result && result.key && result.value) {
+                        const data = JSON.parse(result.value);
+                        console.log('✅ Загружено из облака ВК');
+                        return Array.isArray(data) ? data : [];
+                    }
+                } catch (error) {
+                    console.error('❌ Ошибка ВК загрузки:', error);
+                }
+            }
+            
+            // Фоллбэк на localStorage
+            const local = localStorage.getItem(STORAGE_KEY);
+            if (local) {
+                console.log('✅ Загружено из localStorage');
+                return JSON.parse(local);
+            }
+            
+            return [];
+        }
+
+        // 🔄 Загрузка заданий
         async function loadTasks(year, monthIndex) {
             const sheetKey = `${MONTHS_RU[monthIndex]} ${year}`;
             const gid = SHEETS_GID[sheetKey];
             
             if (!gid) {
-                throw new Error(`Лист "${sheetKey}" не найден в настройках`);
+                throw new Error(`Лист "${sheetKey}" не найден`);
             }
             
             const url = `${BASE_CSV_URL}${gid}`;
@@ -347,20 +365,9 @@
                 dayDiv.className = 'day';
                 dayDiv.textContent = day;
                 
-                // Есть задание
-                if (tasksData[day]) {
-                    dayDiv.classList.add('has-task');
-                }
-                
-                // Выполнено
-                if (completedDays.includes(day)) {
-                    dayDiv.classList.add('completed');
-                }
-                
-                // Сегодня
-                if (year === today.getFullYear() && 
-                    monthIndex === today.getMonth() && 
-                    day === today.getDate()) {
+                if (tasksData[day]) dayDiv.classList.add('has-task');
+                if (completedDays.includes(day)) dayDiv.classList.add('completed');
+                if (year === today.getFullYear() && monthIndex === today.getMonth() && day === today.getDate()) {
                     dayDiv.classList.add('today');
                 }
                 
@@ -368,12 +375,11 @@
                 calendarEl.appendChild(dayDiv);
             }
             
-            // Отладочная информация
-            debugBox.innerHTML = `Загружено дней: <strong>${Object.keys(tasksData).length}</strong><br>Выполнено: <strong>${completedDays.length}</strong><br>Дни: ${Object.keys(tasksData).join(', ') || 'нет'}`;
+            debugBox.innerHTML = `Загружено: <strong>${Object.keys(tasksData).length}</strong> | Выполнено: <strong>${completedDays.length}</strong> | Режим: <strong>${isVKMode ? 'ВК ☁️' : 'Браузер 💻'}</strong>`;
             debugBox.style.display = 'block';
         }
 
-        // 👁 Показать задание при клике
+        // 👁 Показать задание
         function showTask(day, year, monthIndex, clickedEl) {
             document.querySelectorAll('.day').forEach(d => d.classList.remove('active'));
             clickedEl.classList.add('active');
@@ -412,13 +418,12 @@
             taskBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
-        // ✅ Отметить день как выполненный
+        // ✅ Отметить день
         async function markDayComplete(day) {
             if (!completedDays.includes(day)) {
                 completedDays.push(day);
                 await saveProgress();
                 
-                // Обновляем визуально
                 const taskStatus = document.getElementById('task-status');
                 taskStatus.textContent = '✓ Выполнено';
                 taskStatus.className = 'status-done';
@@ -427,16 +432,13 @@
                 completeBtn.classList.add('completed');
                 completeBtn.disabled = true;
                 
-                // Обновляем календарь
                 document.querySelectorAll('.day').forEach(d => {
                     if (d.textContent == day) d.classList.add('completed');
                 });
-                
-                console.log(`✅ День ${day} отмечен как выполненный`);
             }
         }
 
-        // 🔘 Обновление кнопок навигации
+        // 🔘 Навигация
         function updateNavButtons(year, monthIndex) {
             const prevBtn = document.getElementById('prevBtn');
             const nextBtn = document.getElementById('nextBtn');
@@ -463,27 +465,26 @@
                 tasksData = await loadTasks(year, monthIndex);
                 
                 if (Object.keys(tasksData).length === 0) {
-                    showError('Задания не найдены. Проверьте:<br>1. Правильность GID листа<br>2. Опубликована ли таблица<br>3. Заголовки колонок (День, Задание)');
+                    showError('Задания не найдены. Проверьте GID и заголовки таблицы.');
                 } else {
                     renderCalendar(year, monthIndex);
                     updateNavButtons(year, monthIndex);
                 }
             } catch (error) {
                 console.error('❌ Ошибка:', error);
-                showError(`Ошибка загрузки:<br><strong>${error.message}</strong><br><br>Проверьте консоль (F12) для деталей`);
+                showError(`Ошибка:<br><strong>${error.message}</strong>`);
             }
             
             isLoading = false;
         }
 
-        // ⚠️ Показать ошибку
         function showError(message) {
             errorBox.innerHTML = `<div class="error">${message}</div>`;
             errorBox.style.display = 'block';
             calendarEl.innerHTML = '';
         }
 
-        // 🎯 Обработчики навигации
+        // 🎯 Навигация
         document.getElementById('prevBtn').onclick = () => {
             let month = currentDate.getMonth(), year = currentDate.getFullYear();
             month--; if (month < 0) { month = 11; year--; }
@@ -498,28 +499,34 @@
             updateMonth(year, month);
         };
 
-        // 🚀 Инициализация приложения
+        // 🚀 Инициализация (БЕЗ ОШИБОК)
         async function initApp() {
+            // Пробуем инициализировать VK Bridge
             try {
                 await vkBridge.send('VKWebAppInit');
-                await vkBridge.send('VKWebAppAllowUserInfo');
-                
+                isVKMode = true;
+                modeIndicator.textContent = 'Режим: ВК ☁️';
                 console.log('✅ VK Bridge инициализирован');
-                
-                // Загружаем прогресс пользователя из облака ВК
-                completedDays = await loadProgress();
-                console.log('✅ Загружено выполненных дней:', completedDays.length);
-                
-                // Запускаем календарь
-                updateMonth(currentDate.getFullYear(), currentDate.getMonth());
             } catch (error) {
-                console.error('❌ Ошибка инициализации:', error);
-                showError(`Ошибка запуска:<br><strong>${error.message}</strong>`);
+                isVKMode = false;
+                modeIndicator.textContent = 'Режим: Браузер 💻';
+                console.log('⚠️ VK Bridge недоступен (работаем в браузере)');
             }
+            
+            // Загружаем прогресс (универсально)
+            completedDays = await loadProgress();
+            console.log('✅ Загружено выполненных дней:', completedDays.length);
+            
+            // Запускаем календарь
+            updateMonth(currentDate.getFullYear(), currentDate.getMonth());
         }
 
-        // Запуск
-        initApp();
+        // Ждём загрузки страницы
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initApp);
+        } else {
+            initApp();
+        }
     </script>
 </body>
 </html>
