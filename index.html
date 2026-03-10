@@ -166,7 +166,7 @@
         // 🔧 НАСТРОЙКИ
         const BASE_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQeJ5SzWpqpRRRUR4R4iX_YNhhnmp_6RFpoYuRSXYSYJ7igpnMeqxNogOo3H-dnwMX_La9U5sTMaLsN/pub?output=csv&gid=';
         const SHEETS_GID = {
-            'Март 2026': '0',  // ← Ваш GID листа
+            'Март 2026': '1738085710',  // ← Ваш GID листа
         };
         const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
         const STORAGE_KEY = 'marathon_oneday_onestep_2026';
@@ -187,7 +187,8 @@
 
         // 🔍 Определение режима (ВК или браузер)
         function detectVKMode() {
-            return !!window.vkBridge;
+            const href = window.location.href;
+            return href.includes('vk.com') || href.includes('vk-apps.com');
         }
 
         // 📄 Парсинг CSV с поддержкой многострочных ячеек
@@ -453,12 +454,12 @@
         async function initApp() {
             isVKMode = detectVKMode();
             
-            if (window.vkBridge) {
+            if (isVKMode && window.vkBridge) {
                 try {
                     await vkBridge.send('VKWebAppInit');
                     vkBridgeReady = true;
                 } catch (e) {
-                    console.log('VK Bridge init error', e);
+                    vkBridgeReady = false;
                 }
             }
             
