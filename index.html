@@ -187,8 +187,7 @@
 
         // 🔍 Определение режима (ВК или браузер)
         function detectVKMode() {
-            const href = window.location.href;
-            return href.includes('vk.com') || href.includes('vk-apps.com');
+            return !!window.vkBridge;
         }
 
         // 📄 Парсинг CSV с поддержкой многострочных ячеек
@@ -454,12 +453,12 @@
         async function initApp() {
             isVKMode = detectVKMode();
             
-            if (isVKMode && window.vkBridge) {
+            if (window.vkBridge) {
                 try {
                     await vkBridge.send('VKWebAppInit');
                     vkBridgeReady = true;
                 } catch (e) {
-                    vkBridgeReady = false;
+                    console.log('VK Bridge init error', e);
                 }
             }
             
