@@ -3,79 +3,479 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Тест ВК</title>
+    <title>Календарь Заданий</title>
     <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #fff; }
-        .box { background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 10px 0; }
-        .ok { color: #28a745; font-weight: bold; }
-        .err { color: #dc3545; font-weight: bold; }
-        .log { font-family: monospace; font-size: 12px; white-space: pre-wrap; background: #f8f9fa; padding: 10px; border-radius: 4px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            padding: 12px; 
+            background: #fff; 
+            color: #000;
+            line-height: 1.4;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0 15px;
+            border-bottom: 1px solid #e1e3e6;
+            margin-bottom: 10px;
+        }
+        .header h2 { font-size: 18px; font-weight: 600; }
+        .nav-btn {
+            background: #0077FF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .nav-btn:disabled { background: #ccc; cursor: not-allowed; }
+        .nav-btn:active { opacity: 0.9; }
+        
+        .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .weekday {
+            text-align: center;
+            font-size: 11px;
+            color: #888;
+            padding: 6px 2px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        .day { 
+            padding: 10px 4px; 
+            background: #f0f2f5; 
+            border-radius: 8px; 
+            text-align: center; 
+            cursor: pointer; 
+            font-size: 14px;
+            min-height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.1s;
+            position: relative;
+        }
+        .day:hover { background: #e1e3e6; }
+        .day.active { background: #0077FF; color: white; }
+        .day.has-task { border: 2px solid #4BB34B; }
+        .day.has-task::after {
+            content: '';
+            position: absolute;
+            bottom: 5px;
+            width: 6px;
+            height: 6px;
+            background: #4BB34B;
+            border-radius: 50%;
+        }
+        .day.completed {
+            background: #d4edda;
+            border: 2px solid #28a745;
+            color: #155724;
+            font-weight: 600;
+        }
+        .day.completed::after {
+            content: '✓';
+            bottom: auto;
+            top: 2px;
+            right: 4px;
+            width: auto;
+            height: auto;
+            font-size: 10px;
+            background: transparent;
+        }
+        .day.empty { background: transparent; cursor: default; }
+        .day.today { border: 2px solid #0077FF; font-weight: 600; }
+        
+        #task-box { 
+            background: #f5f7fa; 
+            padding: 16px; 
+            border-radius: 12px; 
+            margin-top: 16px;
+            display: none;
+        }
+        #task-box h3 { margin: 0 0 12px 0; font-size: 16px; font-weight: 600; }
+        #task-text { margin: 0 0 12px 0; line-height: 1.6; font-size: 14px; white-space: pre-wrap; }
+        #task-text a { color: #0077FF; text-decoration: none; }
+        #task-text a:hover { text-decoration: underline; }
+        .task-tag { color: #0077FF; font-weight: 500; }
+        .status { font-size: 13px; margin: 0; padding-top: 10px; border-top: 1px solid #e1e3e6; }
+        .status-ok { color: #4BB34B; }
+        .status-wait { color: #FF9500; }
+        .status-done { color: #28a745; }
+        
+        .complete-btn {
+            width: 100%;
+            padding: 12px;
+            background: #4BB34B;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 12px;
+            transition: background 0.2s;
+        }
+        .complete-btn:hover { background: #3d9c3d; }
+        .complete-btn.completed {
+            background: #ccc;
+            cursor: default;
+        }
+        
+        .loading { text-align: center; color: #888; padding: 30px; }
+        .error { 
+            background: #fff2f2; 
+            color: #FF3B30; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin: 10px 0;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
-    <h2>🔍 Диагностика ВК Mini App</h2>
-    <div id="output" class="log">Запуск тестов...</div>
+
+    <div class="header">
+        <button class="nav-btn" id="prevBtn">◀</button>
+        <h2 id="monthTitle">Загрузка...</h2>
+        <button class="nav-btn" id="nextBtn">▶</button>
+    </div>
+
+    <div id="error-box" style="display:none;"></div>
+
+    <div class="calendar" id="weekdays">
+        <div class="weekday">Пн</div><div class="weekday">Вт</div><div class="weekday">Ср</div>
+        <div class="weekday">Чт</div><div class="weekday">Пт</div><div class="weekday">Сб</div><div class="weekday">Вс</div>
+    </div>
+    <div class="calendar" id="calendar"></div>
+
+    <div id="task-box">
+        <h3>📌 <span id="date-title"></span></h3>
+        <div id="task-text"></div>
+        <p class="status">Статус: <span id="task-status"></span></p>
+        <button id="completeBtn" class="complete-btn" style="display:none;">
+            ✅ Отметить как выполненное
+        </button>
+    </div>
 
     <script>
-        const log = (msg, type = '') => {
-            const el = document.getElementById('output');
-            el.innerHTML += `\n[${type}] ${msg}`;
-            console.log(`[${type}] ${msg}`);
+        // 🔧 НАСТРОЙКИ
+        const BASE_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQeJ5SzWpqpRRRUR4R4iX_YNhhnmp_6RFpoYuRSXYSYJ7igpnMeqxNogOo3H-dnwMX_La9U5sTMaLsN/pub?output=csv&gid';
+        const SHEETS_GID = {
+            'Март 2026': '0',  // ← Ваш GID листа
         };
+        const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+        const STORAGE_KEY = 'marathon_oneday_onestep_2026';
 
-        async function runTests() {
-            // 1. Проверка URL
-            log(`📍 URL: ${window.location.href}`);
-            const isVK = window.location.href.includes('vk.com') || window.location.href.includes('vk-apps.com');
-            log(`✅ Внутри ВК: ${isVK ? 'ДА' : 'НЕТ'}`, isVK ? 'ok' : '');
+        let tasksData = {};
+        let completedDays = [];
+        let currentDate = new Date();
+        let isLoading = false;
+        let isVKMode = false;
+        let vkBridgeReady = false;
 
-            // 2. Проверка vkBridge
-            if (window.vkBridge) {
-                log('✅ vkBridge загружен', 'ok');
-                try {
-                    await vkBridge.send('VKWebAppInit');
-                    log('✅ VKWebAppInit: УСПЕХ', 'ok');
-                } catch (e) {
-                    log(`❌ VKWebAppInit: ${e.message}`, 'err');
-                }
-            } else {
-                log('❌ vkBridge НЕ загружен', 'err');
-            }
+        const calendarEl = document.getElementById('calendar');
+        const monthTitleEl = document.getElementById('monthTitle');
+        const taskBox = document.getElementById('task-box');
+        const taskTextEl = document.getElementById('task-text');
+        const completeBtn = document.getElementById('completeBtn');
+        const errorBox = document.getElementById('error-box');
 
-            // 3. Проверка fetch к таблице
-            const testUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQeJ5SzWpqpRRRUR4R4iX_YNhhnmp_6RFpoYuRSXYSYJ7igpnMeqxNogOo3H-dnwMX_La9U5sTMaLsN/pub?output=csv&gid=0';
-            log(`🌐 Тест запроса к: ${testUrl.substring(0,80)}...`);
-            
-            try {
-                const resp = await fetch(testUrl, { mode: 'cors', cache: 'no-cache' });
-                log(`📡 Статус: ${resp.status} ${resp.ok ? '✓' : '✗'}`, resp.ok ? 'ok' : 'err');
-                if (resp.ok) {
-                    const text = await resp.text();
-                    log(`📄 Получено байт: ${text.length}`, 'ok');
-                    log(`📝 Первые 100 символов: "${text.substring(0,100)}..."`);
-                }
-            } catch (e) {
-                log(`❌ Fetch ошибка: ${e.message}`, 'err');
-                log('💡 Возможные причины: 1) Блокировка CORS в ВК 2) Нет интернета 3) Неверный URL');
-            }
-
-            // 4. Проверка localStorage
-            try {
-                localStorage.setItem('test_key', 'test_value');
-                const val = localStorage.getItem('test_key');
-                log(`💾 localStorage: ${val === 'test_value' ? 'РАБОТАЕТ' : 'НЕ РАБОТАЕТ'}`, val === 'test_value' ? 'ok' : 'err');
-            } catch (e) {
-                log(`❌ localStorage ошибка: ${e.message}`, 'err');
-            }
-
-            log('\n=== ТЕСТ ЗАВЕРШЁН ===');
+        // 🔍 Определение режима (ВК или браузер)
+        function detectVKMode() {
+            const href = window.location.href;
+            // Проверяем не домен, а параметры ВКонтакте
+            return href.includes('vk_app_id=') || 
+                href.includes('vk_user_id=') || 
+                href.includes('vk.com') || 
+                href.includes('vk-apps.com');
         }
 
+        // 📄 Парсинг CSV с поддержкой многострочных ячеек
+        function parseCSV(csvText) {
+            const result = {};
+            const lines = csvText.split(/\r?\n/);
+            
+            if (lines.length < 2) return result;
+            
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            const dayIdx = headers.indexOf('День');
+            const taskIdx = headers.indexOf('Задание');
+            
+            if (dayIdx === -1 || taskIdx === -1) {
+                throw new Error('Не найдены колонки "День" или "Задание"');
+            }
+            
+            let currentLine = '';
+            let inQuotes = false;
+            const processedLines = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                currentLine += (currentLine ? '\n' : '') + lines[i];
+                const quotes = (currentLine.match(/"/g) || []).length;
+                inQuotes = quotes % 2 !== 0;
+                
+                if (!inQuotes) {
+                    processedLines.push(currentLine);
+                    currentLine = '';
+                }
+            }
+            if (currentLine) processedLines.push(currentLine);
+            
+            for (const line of processedLines) {
+                if (!line.trim()) continue;
+                const commaIndex = line.indexOf(',');
+                if (commaIndex === -1) continue;
+                
+                const day = parseInt(line.substring(0, commaIndex).trim());
+                let task = line.substring(commaIndex + 1).trim();
+                
+                if (task.startsWith('"') && task.endsWith('"')) {
+                    task = task.slice(1, -1).replace(/""/g, '"');
+                }
+                
+                if (day >= 1 && day <= 31 && task) {
+                    result[day] = task;
+                }
+            }
+            
+            return result;
+        }
+
+        // ✨ Форматирование текста (теги, ссылки)
+        function formatTaskText(text) {
+            if (!text) return '✨ Нет задания';
+            let formatted = text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            formatted = formatted.replace(/(#\w+)/g, '<span class="task-tag">$1</span>');
+            formatted = formatted.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank">$1</a>');
+            return formatted;
+        }
+
+        // 💾 Сохранение прогресса
+        function saveProgress() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(completedDays));
+            
+            if (isVKMode && vkBridgeReady) {
+                vkBridge.send('VKWebAppStorageSet', {
+                    key: STORAGE_KEY,
+                    value: JSON.stringify(completedDays)
+                }).catch(() => {});
+            }
+        }
+
+        // 📥 Загрузка прогресса
+        function loadProgress() {
+            const local = localStorage.getItem(STORAGE_KEY);
+            if (local) {
+                try {
+                    return JSON.parse(local);
+                } catch (e) {
+                    return [];
+                }
+            }
+            return [];
+        }
+
+        // 🔄 Загрузка заданий из Google Таблицы
+        async function loadTasks(year, monthIndex) {
+            const sheetKey = `${MONTHS_RU[monthIndex]} ${year}`;
+            const gid = SHEETS_GID[sheetKey];
+            
+            if (!gid) {
+                throw new Error(`Лист "${sheetKey}" не найден`);
+            }
+            
+            const url = `${BASE_CSV_URL}${gid}`;
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const csvText = await response.text();
+            return parseCSV(csvText);
+        }
+
+        // 📅 Отрисовка календаря
+        function renderCalendar(year, monthIndex) {
+            calendarEl.innerHTML = '';
+            monthTitleEl.textContent = `${MONTHS_RU[monthIndex]} ${year}`;
+            
+            const firstDay = new Date(year, monthIndex, 1);
+            const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+            let startDay = firstDay.getDay() - 1;
+            if (startDay < 0) startDay = 6;
+            
+            for (let i = 0; i < startDay; i++) {
+                const empty = document.createElement('div');
+                empty.className = 'day empty';
+                calendarEl.appendChild(empty);
+            }
+            
+            const today = new Date();
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayDiv = document.createElement('div');
+                dayDiv.className = 'day';
+                dayDiv.textContent = day;
+                
+                if (tasksData[day]) dayDiv.classList.add('has-task');
+                if (completedDays.includes(day)) dayDiv.classList.add('completed');
+                if (year === today.getFullYear() && monthIndex === today.getMonth() && day === today.getDate()) {
+                    dayDiv.classList.add('today');
+                }
+                
+                dayDiv.onclick = () => showTask(day, year, monthIndex, dayDiv);
+                calendarEl.appendChild(dayDiv);
+            }
+        }
+
+        // 👁 Показать задание
+        function showTask(day, year, monthIndex, clickedEl) {
+            document.querySelectorAll('.day').forEach(d => d.classList.remove('active'));
+            clickedEl.classList.add('active');
+            
+            document.getElementById('date-title').textContent = `${day} ${MONTHS_RU[monthIndex]} ${year}`;
+            
+            const task = tasksData[day];
+            taskTextEl.innerHTML = formatTaskText(task);
+            
+            const taskStatus = document.getElementById('task-status');
+            const isCompleted = completedDays.includes(day);
+            
+            if (task) {
+                if (isCompleted) {
+                    taskStatus.textContent = '✓ Выполнено';
+                    taskStatus.className = 'status-done';
+                    completeBtn.textContent = '✓ Уже выполнено';
+                    completeBtn.classList.add('completed');
+                    completeBtn.disabled = true;
+                } else {
+                    taskStatus.textContent = 'Ожидает выполнения';
+                    taskStatus.className = 'status-wait';
+                    completeBtn.textContent = '✅ Отметить как выполненное';
+                    completeBtn.classList.remove('completed');
+                    completeBtn.disabled = false;
+                    completeBtn.onclick = () => markDayComplete(day);
+                }
+                completeBtn.style.display = 'block';
+            } else {
+                taskStatus.textContent = 'Свободный день ✨';
+                taskStatus.className = 'status-ok';
+                completeBtn.style.display = 'none';
+            }
+            
+            taskBox.style.display = 'block';
+            taskBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // ✅ Отметить день как выполненный
+        function markDayComplete(day) {
+            if (!completedDays.includes(day)) {
+                completedDays.push(day);
+                saveProgress();
+                
+                document.getElementById('task-status').textContent = '✓ Выполнено';
+                document.getElementById('task-status').className = 'status-done';
+                completeBtn.textContent = '✓ Уже выполнено';
+                completeBtn.classList.add('completed');
+                completeBtn.disabled = true;
+                
+                document.querySelectorAll('.day').forEach(d => {
+                    if (d.textContent == day) d.classList.add('completed');
+                });
+            }
+        }
+
+        // 🔘 Обновление кнопок навигации
+        function updateNavButtons(year, monthIndex) {
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+            
+            const prevMonth = monthIndex === 0 ? 11 : monthIndex - 1;
+            const prevYear = monthIndex === 0 ? year - 1 : year;
+            const nextMonth = monthIndex === 11 ? 0 : monthIndex + 1;
+            const nextYear = monthIndex === 11 ? year + 1 : year;
+            
+            prevBtn.disabled = !SHEETS_GID[`${MONTHS_RU[prevMonth]} ${prevYear}`];
+            nextBtn.disabled = !SHEETS_GID[`${MONTHS_RU[nextMonth]} ${nextYear}`];
+        }
+
+        // 🔄 Обновление месяца
+        async function updateMonth(year, monthIndex) {
+            if (isLoading) return;
+            isLoading = true;
+            
+            errorBox.style.display = 'none';
+            calendarEl.innerHTML = '<div class="loading">⏳ Загрузка...</div>';
+            taskBox.style.display = 'none';
+            
+            try {
+                tasksData = await loadTasks(year, monthIndex);
+                
+                if (Object.keys(tasksData).length === 0) {
+                    showError('Задания не найдены. Проверьте таблицу.');
+                } else {
+                    renderCalendar(year, monthIndex);
+                    updateNavButtons(year, monthIndex);
+                }
+            } catch (error) {
+                showError(`Ошибка: ${error.message}`);
+            }
+            
+            isLoading = false;
+        }
+
+        // ⚠️ Показать ошибку
+        function showError(message) {
+            errorBox.innerHTML = `<div class="error">${message}</div>`;
+            errorBox.style.display = 'block';
+            calendarEl.innerHTML = '';
+        }
+
+        // 🎯 Обработчики навигации
+        document.getElementById('prevBtn').onclick = () => {
+            let month = currentDate.getMonth(), year = currentDate.getFullYear();
+            month--; if (month < 0) { month = 11; year--; }
+            currentDate = new Date(year, month, 1);
+            updateMonth(year, month);
+        };
+        
+        document.getElementById('nextBtn').onclick = () => {
+            let month = currentDate.getMonth(), year = currentDate.getFullYear();
+            month++; if (month > 11) { month = 0; year++; }
+            currentDate = new Date(year, month, 1);
+            updateMonth(year, month);
+        };
+
+        // 🚀 Инициализация
+        async function initApp() {
+            isVKMode = detectVKMode();
+            
+            if (isVKMode && window.vkBridge) {
+                try {
+                    await vkBridge.send('VKWebAppInit');
+                    vkBridgeReady = true;
+                } catch (e) {
+                    vkBridgeReady = false;
+                }
+            }
+            
+            completedDays = loadProgress();
+            updateMonth(currentDate.getFullYear(), currentDate.getMonth());
+        }
+
+        // Запуск
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', runTests);
+            document.addEventListener('DOMContentLoaded', initApp);
         } else {
-            runTests();
+            initApp();
         }
     </script>
 </body>
